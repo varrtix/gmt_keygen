@@ -95,6 +95,11 @@ typedef HCONTAINER fx_conta_t;
 
 #pragma mark - fx_port_t
 typedef int (*fx_port_op_fn)(fx_port_t *);
+typedef enum {
+  FX_PS_WAIT = 0,
+  FX_PS_RUNNING,
+  FX_PS_FINISHED,
+} fx_port_stat;
 
 FX_PORT_OP_DECLARE(dev_open);
 FX_PORT_OP_DECLARE(dev_close);
@@ -107,7 +112,8 @@ static inline int fx_port_type_check(fx_port_type type) {
 struct fx_port {
   fx_port_type type;
   fx_bytes_t name;
-  int force;
+  volatile fx_port_stat stat;
+  int flags;
 
   fx_obj_t **raw, *obj;
 
@@ -137,28 +143,46 @@ static inline void fx_port_op_bind(fx_port_t *port) {
   }
 }
 
-fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int force,
+fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int flags,
                        fx_obj_t *obj) {
   fx_port_t *port = NULL;
-
-  if (!fx_port_type_check(type))
+  if (!fx_port_type_check(type) || (flags & ~FX_PF_VALID_FLAGS))
     goto end;
 
   port = (fx_port_t *)calloc(1, sizeof(fx_port_t));
-  if (port) {
-    port->type = type;
-    port->obj = obj;
-    fx_port_op_bind(port);
-    port->name = fx_bytes_clone(name);
-    if (port->name.len == 0) {
-      fx_port_free(port);
-      port = NULL;
-      goto end;
-    }
+  if (!port)
+    goto end;
 
-    if (force && port->add)
-      port->force = port->add(port) == 1;
+  port->raw = (fx_obj_t *)calloc(1, sizeof(fx_obj_t *));
+  if (!port->raw)
+    goto err;
+
+  port->flags = flags;
+  port->type = type;
+  port->obj = obj;
+  port->stat = FX_PS_WAIT;
+  fx_port_op_bind(port);
+  port->name = fx_bytes_clone(name);
+  if (port->name.len == 0)
+    goto err;
+
+  if (flags & FX_PF_OPEN) {
+    flags = fx_port_open(port);
+    if (flags == 1) {
+      port->flags &= ~FX_PF_CREAT;
+      goto end;
+    } else if ((flags & FX_PF_CREAT) && port->add) {
+      flags = port->add(port);
+      if (flags == 1)
+        goto end;
+      else
+        port->flags &= ~FX_PF_CREAT;
+    }
   }
+
+err:
+  fx_port_free(port);
+  port = NULL;
 
 end:
   return port;
@@ -166,12 +190,22 @@ end:
 
 void fx_port_free(fx_port_t *port) {
   if (port) {
-    if (port->force && port->remove)
-      port->remove(port);
+    if (port->raw) {
+      fx_port_close(port);
+
+      if ((port->flags & FX_PF_CREAT) && port->remove)
+        port->remove(port);
+
+      free(port->raw);
+    }
 
     fx_bytes_free(&port->name);
     free(port);
   }
+}
+
+int fx_port_busy(fx_port_t *port) {
+  return port && (port->stat == FX_PS_RUNNING);
 }
 
 fx_obj_t *fx_port_export(fx_port_t *port) {
@@ -180,23 +214,40 @@ fx_obj_t *fx_port_export(fx_port_t *port) {
 
 int fx_port_open(fx_port_t *port) {
   int ret = 0;
-  if (port && port->open)
+  if (port && port->open && !fx_port_busy(port)) {
     ret = port->open(port);
+    if (ret == 1)
+      port->stat = FX_PS_RUNNING;
+  }
 
   return ret;
 }
 
 int fx_port_close(fx_port_t *port) {
   int ret = 0;
-  if (port && port->close)
+  if (port && port->close && fx_port_busy(port)) {
     ret = port->close(port);
+    if (ret == 1)
+      port->stat = FX_PS_FINISHED;
+  }
 
   return ret;
 }
 
 #pragma mark - fx_port_dev impl.
-FX_PORT_OP_DECLARE(dev_open) { return 0; }
-FX_PORT_OP_DECLARE(dev_close) { return 0; }
+FX_PORT_OP_DECLARE(dev_open) {
+  int ret = SKF_ConnectDev(port->name.ptr, port->raw);
+  return ret == SAR_OK ? ret == SAR_OK : ret;
+}
+
+FX_PORT_OP_DECLARE(dev_close) {
+  int ret = SKF_DisConnectDev(*port->raw);
+  if (ret != SAR_OK)
+    return ret;
+
+  memset(port->raw, 0x00, sizeof(fx_obj_t *));
+  return 1;
+}
 
 #pragma mark - fx_port_app impl.
 FX_PORT_OP_DECLARE(app_add) { return 0; }
@@ -802,76 +853,6 @@ end:
 //   out = NULL;
 // }
 
-#pragma mark - fx_outlet_t
-struct fx_outlet {
-  const char *pin;
-  const char *authkey;
-  char *auth;
-
-  fx_bytes_t dev_id;
-  fx_dev_t *dev;
-
-  fx_bytes_t app_id;
-  fx_app_t *app;
-
-  fx_bytes_t conta_id;
-  fx_conta_t *conta;
-
-  fx_port_t *dev_port;
-  fx_port_t *app_port;
-};
-
-static char *fx_outlet_gen_auth(fx_outlet_t *outlet) {}
-
-fx_outlet_t *fx_outlet_new(const char *authkey, const char *pin) {
-  fx_outlet_t *outlet = NULL;
-
-  if (!pin)
-    goto end;
-
-  outlet = (fx_outlet_t *)calloc(1, sizeof(fx_outlet_t));
-  if (!outlet)
-    goto end;
-
-  outlet->authkey = strdup(authkey);
-  outlet->pin = strdup(pin);
-  if (!outlet->authkey || !outlet->pin) {
-    fx_outlet_free(outlet);
-    outlet = NULL;
-    goto end;
-  }
-
-  outlet->dev_id = fx_bytes_empty();
-  outlet->app_id = fx_bytes_empty();
-  outlet->conta_id = fx_bytes_empty();
-
-end:
-  return outlet;
-}
-
-void fx_outlet_free(fx_outlet_t *outlet) {
-  if (outlet) {
-    if (outlet->authkey) {
-      free((void *)outlet->authkey);
-      outlet->authkey = NULL;
-    }
-
-    if (outlet->pin) {
-      free((void *)outlet->pin);
-      outlet->pin = NULL;
-    }
-
-    if (outlet->auth) {
-      free(outlet->auth);
-      outlet->auth = NULL;
-    }
-  }
-}
-
-const char *fx_outlet_get_pin(fx_outlet_t *outlet) { return outlet->pin; }
-
-int fx_outlet_validate(fx_outlet_t *outlet) {}
-
 // int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
 //                        fx_bytes_t port) {
 //   int ret = fx_port_type_check(type);
@@ -955,3 +936,63 @@ int fx_outlet_validate(fx_outlet_t *outlet) {}
 // end:
 //   return ret;
 // }
+
+#pragma mark - fx_outlet_t
+struct fx_outlet {
+  const char *pin;
+  const char *authkey;
+  char *auth;
+
+  fx_port_t *pdev, *papp, *pconta;
+};
+
+static char *fx_outlet_gen_auth(fx_outlet_t *outlet) {}
+
+fx_outlet_t *fx_outlet_new(const char *authkey, const char *pin) {
+  fx_outlet_t *outlet = NULL;
+
+  if (!authkey || !pin)
+    goto end;
+
+  outlet = (fx_outlet_t *)calloc(1, sizeof(fx_outlet_t));
+  if (!outlet)
+    goto end;
+
+  outlet->authkey = strdup(authkey);
+  outlet->pin = strdup(pin);
+  if (!outlet->authkey || !outlet->pin) {
+    fx_outlet_free(outlet);
+    outlet = NULL;
+    goto end;
+  }
+
+  // outlet->dev_id = fx_bytes_empty();
+  // outlet->app_id = fx_bytes_empty();
+  // outlet->conta_id = fx_bytes_empty();
+
+end:
+  return outlet;
+}
+
+void fx_outlet_free(fx_outlet_t *outlet) {
+  if (outlet) {
+    if (outlet->authkey) {
+      free((void *)outlet->authkey);
+      outlet->authkey = NULL;
+    }
+
+    if (outlet->pin) {
+      free((void *)outlet->pin);
+      outlet->pin = NULL;
+    }
+
+    if (outlet->auth) {
+      free(outlet->auth);
+      outlet->auth = NULL;
+    }
+  }
+}
+
+const char *fx_outlet_get_pin(fx_outlet_t *outlet) { return outlet->pin; }
+
+int fx_outlet_validate(fx_outlet_t *outlet) {}

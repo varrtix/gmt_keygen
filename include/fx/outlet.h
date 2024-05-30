@@ -43,12 +43,19 @@ typedef enum {
   FX_MAX_PORT,
 } fx_port_type;
 
-fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int force,
+typedef enum {
+  FX_PF_CREAT = 0x01,
+  FX_PF_OPEN = 0x02,
+  FX_PF_VALID_FLAGS = (FX_PF_CREAT | FX_PF_OPEN),
+} fx_port_flag_t;
+
+fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int flags,
                        fx_obj_t *obj);
 void fx_port_free(fx_port_t *port);
 
 int fx_port_open(fx_port_t *port);
 int fx_port_close(fx_port_t *port);
+int fx_port_busy(fx_port_t *port);
 fx_obj_t *fx_port_export(fx_port_t *port);
 
 #pragma mark - fx_port_list_t

@@ -27,11 +27,12 @@
 
 #include "fx/outlet.h"
 
-void test_fx_port_list(void **state) {
+void test_fx_dev_port(void **state) {
   size_t len = 0;
   char **list;
   fx_port_list_t *dev_plist = fx_port_list_new(FX_DEV_PORT, NULL);
-  const char *peek_name;
+  fx_bytes_t dev_pname;
+  fx_port_t *dev_port;
   assert_ptr_not_equal(dev_plist, NULL);
 
   assert_int_equal(fx_port_list_export2char(dev_plist, NULL, &len), 1);
@@ -45,10 +46,15 @@ void test_fx_port_list(void **state) {
       free(*(list + i));
   }
 
-  assert_ptr_not_equal(
-      peek_name = fx_port_list_peek_name2char(dev_plist, 0, NULL), NULL);
-  print_message("[dev port 0] peek: %s\n", peek_name);
+  dev_pname = fx_port_list_get_name(dev_plist, 0);
+  assert_int_equal(fx_bytes_check(&dev_pname), 1);
+  print_message("[dev port 0] peek: %s\n", dev_pname.ptr);
 
+  assert_ptr_not_equal(
+      dev_port = fx_port_new(FX_DEV_PORT, dev_pname, FX_PF_OPEN, NULL), NULL);
+  assert_int_equal(fx_port_busy(dev_port), 1);
+
+  fx_port_free(dev_port);
   test_free(list);
   fx_port_list_free(dev_plist);
 }

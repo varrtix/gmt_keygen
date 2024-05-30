@@ -35,7 +35,7 @@ void test_fx_port_list(void **state) {
   assert_ptr_not_equal(dev_plist, NULL);
 
   assert_int_equal(fx_port_list_export2char(dev_plist, NULL, &len), 1);
-  assert_int_not_equal(len, 0);
+  assert_int_equal(len, fx_port_list_size(dev_plist));
   assert_ptr_not_equal(list = (char **)test_calloc(len, sizeof(char *)), NULL);
   assert_int_equal(fx_port_list_export2char(dev_plist, list, &len), 1);
 
@@ -47,7 +47,7 @@ void test_fx_port_list(void **state) {
 
   assert_ptr_not_equal(
       peek_name = fx_port_list_peek_name2char(dev_plist, 0, NULL), NULL);
-  print_message("[peek dev port 0] %s\n", peek_name);
+  print_message("[dev port 0] peek: %s\n", peek_name);
 
   test_free(list);
   fx_port_list_free(dev_plist);

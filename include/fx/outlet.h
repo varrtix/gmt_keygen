@@ -57,6 +57,7 @@ typedef struct fx_port_list fx_port_list_t;
 fx_port_list_t *fx_port_list_new(fx_port_type type, fx_obj_t *obj);
 void fx_port_list_free(fx_port_list_t *plist);
 
+size_t fx_port_list_size(fx_port_list_t *plist);
 const char *fx_port_list_peek_name2char(fx_port_list_t *plist, size_t idx,
                                         size_t *nlen);
 fx_bytes_t fx_port_list_get_name(fx_port_list_t *plist, size_t idx);
@@ -70,6 +71,7 @@ void fx_outlet_free(fx_outlet_t *outlet);
 
 const char *fx_outlet_get_pin(fx_outlet_t *outlet);
 int fx_outlet_validate(fx_outlet_t *outlet);
+
 // int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type, fx_bytes_t
 // port);
 

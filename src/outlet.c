@@ -174,7 +174,9 @@ void fx_port_free(fx_port_t *port) {
   }
 }
 
-fx_obj_t *fx_port_export(fx_port_t *port) { return port->raw; }
+fx_obj_t *fx_port_export(fx_port_t *port) {
+  return port ? port->raw : (fx_obj_t *)NULL;
+}
 
 int fx_port_open(fx_port_t *port) {
   int ret = 0;
@@ -310,6 +312,10 @@ void fx_port_list_free(fx_port_list_t *plist) {
     fx_bytes_free(&plist->raw);
     free(plist);
   }
+}
+
+size_t fx_port_list_size(fx_port_list_t *plist) {
+  return plist ? plist->offlen : 0;
 }
 
 static inline size_t fx_port_list_get_name_size(fx_port_list_t *plist,

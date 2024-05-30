@@ -33,6 +33,7 @@ void test_fx_dev_port(void **state) {
   fx_port_list_t *dev_plist = fx_port_list_new(FX_DEV_PORT, NULL);
   fx_bytes_t dev_pname;
   fx_port_t *dev_port;
+  fx_outlet_t *outlet;
   assert_ptr_not_equal(dev_plist, NULL);
 
   assert_int_equal(fx_port_list_export2char(dev_plist, NULL, &len), 1);
@@ -54,7 +55,12 @@ void test_fx_dev_port(void **state) {
       dev_port = fx_port_new(FX_DEV_PORT, dev_pname, FX_PF_OPEN, NULL), NULL);
   assert_int_equal(fx_port_busy(dev_port), 1);
 
-  fx_port_free(dev_port);
+  assert_ptr_not_equal(outlet = fx_outlet_new("1234567812345678", "12345678"),
+                       NULL);
+  assert_int_equal(fx_outlet_set_port(outlet, FX_DEV_PORT, dev_port), 1);
+  assert_int_equal(fx_outlet_validate_port(outlet, FX_APP_PORT), 1);
+
+  fx_outlet_free(outlet);
   test_free(list);
   fx_port_list_free(dev_plist);
 }

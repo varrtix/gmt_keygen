@@ -31,6 +31,7 @@
 
 #define FX_PIN_RETRY_TIMES 10
 #define FX_MAX_AUTH_LEN 16
+#define FX_MAX_AUTH_RAND_LEN 8
 
 #define FX_DEDUP_VAR(v) _##v
 
@@ -89,9 +90,12 @@
   }
 
 #pragma mark - typealias
+typedef HANDLE fx_raw_port_t;
 typedef DEVHANDLE fx_dev_t;
 typedef HAPPLICATION fx_app_t;
 typedef HCONTAINER fx_conta_t;
+
+typedef BLOCKCIPHERPARAM fx_cipher_ctx_t;
 
 #pragma mark - fx_port_t
 typedef int (*fx_port_op_fn)(fx_port_t *);
@@ -208,8 +212,8 @@ int fx_port_busy(fx_port_t *port) {
   return port && (port->stat == FX_PS_RUNNING);
 }
 
-fx_obj_t *fx_port_export(fx_port_t *port) {
-  return port ? port->raw : (fx_obj_t *)NULL;
+fx_obj_t **fx_port_export(fx_port_t *port) {
+  return port ? port->raw : (fx_obj_t **)NULL;
 }
 
 int fx_port_open(fx_port_t *port) {
@@ -445,508 +449,81 @@ end:
   return ret;
 }
 
-// fx_raw_layers_t *fx_raw_layers_new(size_t len) {
-//   fx_raw_layers_t *plist = (fx_raw_layers_t
-//   *)malloc(sizeof(fx_raw_layers_t)); if (plist) {
-//     plist->list = (fx_bytes_t *)calloc(sizeof(fx_bytes_t), len);
-//     if (!plist->list) {
-//       fx_port_list_free(plist);
-//       plist = NULL;
-//     } else {
-//       plist->len = len;
-//     }
-//   }
-
-//   return plist;
-// }
-
-// void fx_port_list_free(fx_port_list_t *plist) {
-//   if (plist) {
-//     if (plist->list) {
-//       if (plist->len != 0) {
-//         for (size_t i = 0; i < plist->len; ++i)
-//           fx_bytes_free(plist->list + i);
-//         plist->len = 0;
-//       }
-//       free(plist->list);
-//       plist->list = NULL;
-//     }
-//     free(plist);
-//   }
-// }
-
-// size_t fx_raw_layers_get_list(fx_raw_layers_t *raw_layers,
-//                               const uint8_t **bufs) {}
-
-// static int fx_raw_layers_load_ex(fx_raw_layers_t *raw_layers,
-//                                  fx_port_list_iter_fn iter, fx_obj_t *obj)
-//                                  {
-//   int ret = 0;
-//   fx_bytes_t raw_bytes = fx_bytes_empty();
-
-//   ret = iter(&raw_bytes, obj);
-//   if (ret != 1)
-//     goto end;
-
-// end:
-//   return ret;
-// }
-
-// struct port *init_layer(xulong nlen) {
-//   struct port *la = NULL;
-
-//   if ((nlen == 0) ||
-//       (IS_NULL(la) &&
-//        IS_NULL(la = (struct port *)malloc(sizeof(struct port)))) ||
-//       (IS_NULL(la->name = (xchar *)malloc(sizeof(xchar) * nlen))))
-//     XPERR_RT("failed to init port.", la);
-
-//   memset(la->name, '\0', sizeof(xchar) * nlen);
-//   la->size = nlen;
-
-//   return la;
-// }
-
-// void free_layer(struct port *la) {
-//   if (IS_NULL(la))
-//     return;
-
-//   if (!IS_NULL(la->name))
-//     free(la->name);
-
-//   free(la);
-// }
-
-// struct layer_list *init_layer_list(xulong nlen) {
-//   struct layer_list *list = NULL;
-
-//   if ((nlen == 0) ||
-//       IS_NULL(list = (struct layer_list *)malloc(sizeof(struct
-//       layer_list))))
-//     goto err;
-
-//   memset(list, '\0', sizeof(struct layer_list));
-
-//   if (IS_NULL(list->plist =
-//                   (struct port **)malloc(sizeof(struct port *) * nlen))) {
-//     free_layer_list(list);
-//     goto err;
-//   }
-
-//   memset(list->plist, '\0', sizeof(struct port *) * nlen);
-//   list->size = nlen;
-
-//   return list;
-
-// err:
-//   XPERR_RT("failed to create port list.", list);
-// }
-
-// void free_layer_list(struct layer_list *list) {
-//   if (IS_NULL(list))
-//     return;
-
-//   if (!IS_NULL(list->plist) && list->size > 0)
-//     for (xulong i = 0; i < list->size; i++)
-//       free_layer(*(list->plist + i));
-
-//   free(list);
-// }
-
-// struct port *enum_device_maker(layer_handler handler, object *obj) {
-//   API_LAYER_MAKER(la, size, enum_dev, (TRUE, NULL, &_size), handler,
-//                   SKF_EnumDev);
-//   return handler(_la, _enum_dev, obj) ? _la : (struct port *)NULL;
-// }
-
-// int enum_device_handler(struct port *la, func enum_dev, object *obj) {
-//   API_LAYER_HANDLER(la, enum_dev, (TRUE, la->name, &la->size), SKF_EnumDev,
-//   0); return 1;
-// }
-
-// struct port *get_raw_layer(layer_maker maker, layer_handler handler,
-//                             object *obj) {
-//   assert(NOT_NULL(maker) && NOT_NULL(handler));
-//   return maker(handler, obj);
-// }
-
-// struct port *enum_app_maker(layer_handler handler, object *obj) {
-//   device *dev = (device *)obj;
-//   if (IS_NULL(dev) || IS_NULL(*dev))
-//     return (struct port *)NULL;
-
-//   API_LAYER_MAKER(la, size, enum_app, (*dev, NULL, &_size), handler,
-//                   SKF_EnumApplication);
-//   return handler(_la, _enum_app, obj) ? _la : (struct port *)NULL;
-// }
-
-// int enum_app_handler(struct port *la, func enum_app, object *obj) {
-//   API_LAYER_HANDLER(la, enum_app, (*((device *)obj), la->name, &la->size),
-//                     SKF_EnumApplication, 0);
-//   return 1;
-// }
-
-// struct port *enum_container_maker(layer_handler handler, object *obj) {
-//   application *app = (application *)obj;
-//   if (IS_NULL(app) || IS_NULL(*app))
-//     return (struct port *)NULL;
-
-//   API_LAYER_MAKER(la, size, enum_container, (*app, NULL, &_size), handler,
-//                   SKF_EnumContainer);
-//   return handler(_la, _enum_container, obj) ? _la : (struct port *)NULL;
-// }
-// int enum_container_handler(struct port *la, func enum_container, object
-// *obj) {
-//   API_LAYER_HANDLER(la, enum_container,
-//                     (*((application *)obj), la->name, &la->size),
-//                     SKF_EnumContainer, 0);
-//   return 1;
-// }
-
-// struct layer_list *get_layer_list(layer_maker maker, layer_handler handler,
-//                                   object *obj) {
-//   struct port *raw_la = NULL;
-//   struct layer_list *la_list = NULL;
-//   xulong *indices = NULL;
-//   xulong idx_cnt = 0;
-//   int flag = 0;
-
-//   assert(NOT_NULL(maker) && NOT_NULL(handler));
-
-//   if (IS_NULL(raw_la = get_raw_layer(maker, handler, obj)) ||
-//       IS_NULL(indices = (int *)malloc(sizeof(int) * raw_la->size)))
-//     goto err;
-
-//   memset(indices, -1, sizeof(int) * raw_la->size);
-
-//   for (xulong i = 0, j = 0; i < raw_la->size; i++) {
-//     if (*(raw_la->name + i) != '\0') {
-//       if (flag)
-//         flag = 0;
-
-//       continue;
-//     }
-
-//     if (flag) {
-//       idx_cnt = j;
-//       break;
-//     }
-
-//     flag = 1;
-
-//     indices[j++] = i;
-//   }
-
-//   if (IS_NULL(la_list = init_layer_list(idx_cnt))) {
-//     free_layer_list(la_list);
-//     goto err;
-//   }
-
-//   struct port *tmp_la = NULL;
-//   xulong tmp_size = 0;
-//   xulong begin_idx = 0;
-
-//   for (xulong i = 0; i < idx_cnt; i++) {
-//     tmp_size = *(indices + i) - begin_idx + 1;
-
-//     if (IS_NULL(tmp_la = init_layer(tmp_size)))
-//       goto err;
-
-//     memcpy(tmp_la->name, raw_la->name + begin_idx, tmp_size);
-//     *(la_list->plist + i) = tmp_la;
-
-//     if ((begin_idx += tmp_size) > raw_la->size)
-//       break;
-//   }
-
-//   free(indices);
-
-//   return la_list;
-
-// err:
-//   free(indices);
-
-//   XPERR_RT("failed to decode list.", la_list);
-// }
-
-// struct layer_list *get_device_list() {
-//   RETURN_LAYER_LIST(enum_device_maker, enum_device_handler, NULL);
-// }
-
-// struct layer_list *get_app_list(struct outlet *out) {
-//   RETURN_LAYER_LIST(enum_app_maker, enum_app_handler, out->dev);
-// }
-
-// struct layer_list *get_container_list(struct outlet *out) {
-//   RETURN_LAYER_LIST(enum_container_maker, enum_container_handler,
-//   out->app);
-// }
-
-// int connect_device(const xchar *dev_name, struct outlet *out) {
-
-//   assert(NOT_NULL(dev_name) && NOT_NULL(out));
-
-//   API_EXTRACTOR(conn_dev, SKF_ConnectDev, 0);
-
-//   if (IS_NULL(out->dev = (device *)malloc(sizeof(device))))
-//     goto err;
-
-//   memset(out->dev, '\0', sizeof(device));
-
-//   if (_conn_dev(dev_name, out->dev) != SAR_OK) {
-//     disconnect_device(out->dev);
-//     out->dev = NULL;
-//     goto err;
-//   }
-
-//   return 1;
-
-// err:
-//   XPERR_RT("failed to connect device.", 0);
-// }
-
-// void disconnect_device(struct outlet *out) {
-//   F_SKF_DisConnectDev disconn_dev = NULL;
-
-//   if (IS_NULL(out) || IS_NULL(out->dev))
-//     return;
-
-//   if (NOT_NULL(disconn_dev = API_EXTRACT(SKF_DisConnectDev)) &&
-//       disconn_dev(*(out->dev)) != SAR_OK)
-//     XPERR("failed to disconnect device.");
-
-//   free(out->dev);
-// }
-
-// int open_application(const xchar *app_name, struct outlet *out) {
-//   assert(NOT_NULL(out) && NOT_NULL(app_name));
-
-//   API_EXTRACTOR(open_app, SKF_OpenApplication, out->app);
-
-//   if (IS_NULL(out->dev) ||
-//       IS_NULL(out->app = (application *)malloc(sizeof(application))))
-//     goto err;
-
-//   memset(out->app, '\0', sizeof(application));
-
-//   if (_open_app(*(out->dev), app_name, out->app) != SAR_OK) {
-//     close_application(out);
-//     out->app = NULL;
-//     goto err;
-//   }
-
-//   return 1;
-
-// err:
-//   XPERR_RT("failed to open application.", 0);
-// }
-
-// void close_application(struct outlet *out) {
-//   F_SKF_CloseApplication close_app = NULL;
-
-//   if (IS_NULL(out) || IS_NULL(out->app))
-//     return;
-
-//   if (NOT_NULL(close_app = API_EXTRACT(SKF_CloseApplication)) &&
-//       close_app(*(out->app)) != SAR_OK)
-//     XPERR("failed to close application.");
-
-//   free(out->app);
-// }
-
-// int open_container(const xchar *container_name, struct outlet *out) {
-//   assert(NOT_NULL(container_name) && NOT_NULL(out));
-
-//   API_EXTRACTOR(open_conta, SKF_OpenContainer, out->conta);
-
-//   if (IS_NULL(out->app) ||
-//       IS_NULL(out->conta = (container *)malloc(sizeof(container))))
-//     goto err;
-
-//   memset(out->conta, '\0', sizeof(container));
-
-//   if (_open_conta(*(out->app), container_name, out->conta) != SAR_OK) {
-//     close_container(out);
-//     out->conta = NULL;
-//     goto err;
-//   }
-
-//   return 1;
-
-// err:
-//   XPERR_RT("failed to open container.", 0);
-// }
-
-// void close_container(struct outlet *out) {
-//   F_SKF_CloseContainer close_conta = NULL;
-
-//   if (IS_NULL(out) || IS_NULL(out->conta))
-//     return;
-
-//   if (NOT_NULL(close_conta = API_EXTRACT(SKF_CloseContainer)) &&
-//       close_conta(*(out->conta)) != SAR_OK)
-//     XPERR("failed to close container.");
-
-//   free(out->conta);
-// }
-
-// int user_permission_auth(struct outlet *out) {
-//   F_SKF_VerifyPIN verify_PIN = NULL;
-//   xulong retry_cnt = 0;
-
-//   assert(NOT_NULL(out));
-
-//   if (IS_NULL(out->app) || IS_NULL(verify_PIN =
-//   API_EXTRACT(SKF_VerifyPIN)))
-//     goto err;
-
-//   if (verify_PIN(*(out->app), USER_TYPE, K_PIN_CODE, &retry_cnt) != SAR_OK)
-//   {
-//     fprintf(stderr, "WARNING: PIN retry counts: %lu\n", retry_cnt);
-//     goto err;
-//   }
-
-//   return 1;
-
-// err:
-//   XPERR_RT("failed to verify PIN", 0);
-// }
-
-// struct outlet *init_outlet() {
-//   struct outlet *out = NULL;
-//   struct layer_list *dev_list = NULL;
-//   struct layer_list *app_list = NULL;
-//   struct layer_list *container_list = NULL;
-
-//   if (IS_NULL(out = (struct outlet *)malloc(sizeof(struct outlet))))
-//     XPERR_RT("failed to init outlet.", out);
-
-//   memset(out, '\0', sizeof(struct outlet));
-
-//   if (IS_NULL(dev_list = get_device_list()) ||
-//       !connect_device((*dev_list->plist)->name, out) ||
-//       IS_NULL(app_list = get_app_list(out)) ||
-//       !open_application((*app_list->plist)->name, out) ||
-//       !user_permission_auth(out) ||
-//       IS_NULL(container_list = get_container_list(out)) ||
-//       !open_container((*container_list->plist)->name, out)) {
-//     free_outlet(out);
-//     out = NULL;
-//     XPERR("failed to init outlet.");
-//   }
-
-//   free_layer_list(container_list);
-//   free_layer_list(app_list);
-//   free_layer_list(dev_list);
-
-//   return out;
-// }
-
-// void free_outlet(struct outlet *out) {
-//   if (IS_NULL(out))
-//     return;
-
-//   close_container(out);
-//   close_application(out);
-//   disconnect_device(out);
-//   free(out);
-//   out = NULL;
-// }
-
-// int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
-//                        fx_bytes_t port) {
-//   int ret = fx_port_type_check(type);
-//   if (ret) {
-//     switch (type) {
-//     case FX_DEV_PORT:
-//       ret = fx_outlet_load_dev(outlet, port);
-//       break;
-
-//     case FX_APP_PORT:
-//       ret = fx_outlet_load_app(outlet, port);
-//       break;
-
-//     case FX_CONTA_PORT:
-//       ret = fx_outlet_load_conta(outlet, port);
-//       break;
-
-//     default:
-//       ret = 0;
-//       break;
-//     }
-//   }
-
-//   return ret;
-// }
-
-// FX_PORT_OP_DECLARE(dev_load) {
-//   int ret = 0;
-
-//   if (outlet->dev) {
-//     ret = port->close(outlet, port);
-//     if (!ret)
-//       goto end;
-//   }
-
-//   ret = SKF_ConnectDev(port->name.ptr, outlet->dev);
-//   if (ret == SAR_OK) {
-//     outlet->dev_id = fx_bytes_clone(port->name);
-//     ret = 1;
-//   }
-
-// end:
-//   return ret;
-// }
-
-// FX_PORT_OP_DECLARE(dev_unload) {
-//   int ret = 1;
-
-//   fx_bytes_free(&outlet->dev_id);
-//   if (outlet->dev) {
-//     ret = SKF_DisConnectDev(*outlet->dev);
-//     if (ret == SAR_OK) {
-//       outlet->dev = NULL;
-//       ret = 1;
-//     }
-//   }
-
-//   return ret;
-// }
-
-// #pragma mark - fx_outlet_app impl.
-// FX_PORT_OP_DECLARE(app_add) {
-//   int ret = 0;
-
-//   if (!outlet->dev)
-//     goto end;
-
-//   if (outlet->app) {
-//     ret = 1;
-//     goto end;
-//   }
-
-//   ret = SKF_CreateApplication(
-//       *outlet->dev, port->name.ptr, outlet->pin, FX_PIN_RETRY_TIMES,
-//       outlet->pin, FX_PIN_RETRY_TIMES, SECURE_USER_ACCOUNT, outlet->app);
-//   if (ret == SAR_OK) {
-//     outlet->app_id = fx_bytes_clone(port->name);
-//     ret = 1;
-//   }
-
-// end:
-//   return ret;
-// }
-
 #pragma mark - fx_outlet_t
 struct fx_outlet {
-  const char *pin;
-  const char *authkey;
-  char *auth;
+  fx_bytes_t pin;
+  fx_bytes_t authkey;
+  fx_bytes_t auth;
 
   fx_port_t *pdev, *papp, *pconta;
 };
 
-static char *fx_outlet_gen_auth(fx_outlet_t *outlet) {}
+static int fx_outlet_gen_auth(fx_outlet_t *outlet, fx_dev_t **pdev) {
+  int ret = 0;
+  fx_raw_port_t pkey = NULL;
+  fx_cipher_ctx_t cctx = {0};
+  fx_bytes_t block = fx_bytes_calloc(FX_MAX_AUTH_LEN);
+  if (!outlet->pdev || !fx_port_busy(outlet->pdev) ||
+      !fx_bytes_check(&outlet->authkey) || !fx_bytes_check(&block))
+    goto end;
+
+  if (fx_bytes_check(&outlet->auth))
+    fx_bytes_free(&outlet->auth);
+
+  outlet->auth = fx_bytes_calloc(FX_MAX_AUTH_LEN);
+  if (!fx_bytes_check(&outlet->auth))
+    goto err;
+
+  ret = SKF_GenRandom(*pdev, block.ptr, FX_MAX_AUTH_RAND_LEN);
+  if (ret != SAR_OK)
+    goto err;
+
+  ret = SKF_SetSymmKey(*pdev, outlet->authkey.ptr, SGD_SM4_ECB, &pkey);
+  if (ret != SAR_OK)
+    goto err;
+
+  ret = SKF_EncryptInit(pkey, cctx);
+  if (ret != SAR_OK)
+    goto err;
+
+  ret = SKF_Encrypt(pkey, block.ptr, block.len, outlet->auth.ptr,
+                    (ULONG *)&outlet->auth.len);
+  if (ret == SAR_OK) {
+    fx_bytes_free(&block);
+    ret = 1;
+    goto end;
+  }
+
+err:
+  fx_bytes_free(&outlet->auth);
+  fx_bytes_free(&block);
+
+end:
+  return ret;
+}
+
+static int fx_outlet_unlock_dev(fx_outlet_t *outlet) {
+  int ret = 0;
+  fx_dev_t **pdev = (fx_dev_t **)fx_port_export(outlet->pdev);
+
+  if (!pdev)
+    goto end;
+
+  if (!fx_bytes_check(&outlet->auth)) {
+    ret = fx_outlet_gen_auth(outlet, pdev);
+    if (ret != 1)
+      goto end;
+  }
+
+  ret = SKF_DevAuth(*pdev, outlet->auth.ptr, outlet->auth.len);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+static int fx_outlet_unlock_conta(fx_outlet_t *outlet) {}
 
 fx_outlet_t *fx_outlet_new(const char *authkey, const char *pin) {
   fx_outlet_t *outlet = NULL;
@@ -958,17 +535,14 @@ fx_outlet_t *fx_outlet_new(const char *authkey, const char *pin) {
   if (!outlet)
     goto end;
 
-  outlet->authkey = strdup(authkey);
-  outlet->pin = strdup(pin);
-  if (!outlet->authkey || !outlet->pin) {
+  outlet->auth = fx_bytes_empty();
+  outlet->pin = fx_bytes_clone(fx_bytes_new((uint8_t *)pin, strlen(pin)));
+  outlet->authkey =
+      fx_bytes_clone(fx_bytes_new((uint8_t *)authkey, strlen(authkey)));
+  if (!fx_bytes_check(&outlet->pin) || !fx_bytes_check(&outlet->authkey)) {
     fx_outlet_free(outlet);
     outlet = NULL;
-    goto end;
   }
-
-  // outlet->dev_id = fx_bytes_empty();
-  // outlet->app_id = fx_bytes_empty();
-  // outlet->conta_id = fx_bytes_empty();
 
 end:
   return outlet;
@@ -976,23 +550,63 @@ end:
 
 void fx_outlet_free(fx_outlet_t *outlet) {
   if (outlet) {
-    if (outlet->authkey) {
-      free((void *)outlet->authkey);
-      outlet->authkey = NULL;
-    }
+    fx_outlet_validate_port(outlet, FX_CONTA_PORT);
+    fx_port_free(outlet->pconta);
 
-    if (outlet->pin) {
-      free((void *)outlet->pin);
-      outlet->pin = NULL;
-    }
+    fx_outlet_validate_port(outlet, FX_APP_PORT);
+    fx_port_free(outlet->papp);
 
-    if (outlet->auth) {
-      free(outlet->auth);
-      outlet->auth = NULL;
-    }
+    fx_port_free(outlet->pdev);
+
+    fx_bytes_free(&outlet->auth);
+    fx_bytes_free(&outlet->authkey);
+    fx_bytes_free(&outlet->pin);
+    free(outlet);
   }
 }
 
-const char *fx_outlet_get_pin(fx_outlet_t *outlet) { return outlet->pin; }
+const char *fx_outlet_peek_pin2char(fx_outlet_t *outlet) {
+  return (const char *)(outlet ? outlet->pin.ptr : NULL);
+}
 
-int fx_outlet_validate(fx_outlet_t *outlet) {}
+fx_bytes_t fx_outlet_get_pin(fx_outlet_t *outlet) {
+  return outlet ? fx_bytes_clone(outlet->pin) : fx_bytes_empty();
+}
+
+int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
+                       fx_port_t *port) {
+  if (!outlet)
+    return 0;
+
+  switch (type) {
+  case FX_DEV_PORT:
+    outlet->pdev = port;
+    break;
+
+  case FX_APP_PORT:
+    outlet->papp = port;
+    break;
+
+  case FX_CONTA_PORT:
+    outlet->pconta = port;
+    break;
+
+  default:
+    return 0;
+  }
+  return 1;
+}
+
+int fx_outlet_validate_port(fx_outlet_t *outlet, fx_port_type type) {
+  if (!outlet)
+    return 0;
+
+  switch (type) {
+  case FX_APP_PORT:
+    return fx_outlet_unlock_dev(outlet);
+  case FX_CONTA_PORT:
+    return fx_outlet_unlock_conta(outlet);
+  default:
+    return 0;
+  }
+}

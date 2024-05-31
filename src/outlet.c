@@ -29,7 +29,7 @@
 #include "fx/utils.h"
 #include "skfapi.h"
 
-#define FX_PIN_RETRY_TIMES 10
+#define FX_MAX_PIN_RETRIES 10
 #define FX_MAX_AUTH_LEN 16
 #define FX_MAX_AUTH_RAND_LEN 8
 
@@ -125,6 +125,8 @@ struct fx_port {
   fx_port_op_fn remove;
   fx_port_op_fn open;
   fx_port_op_fn close;
+
+  fx_outlet_t *outlet;
 };
 
 static inline void fx_port_op_bind(fx_port_t *port) {
@@ -148,7 +150,7 @@ static inline void fx_port_op_bind(fx_port_t *port) {
 }
 
 fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int flags,
-                       fx_obj_t *obj) {
+                       fx_outlet_t *outlet, fx_obj_t *obj) {
   fx_port_t *port = NULL;
   if (!fx_port_type_check(type) || (flags & ~FX_PF_VALID_FLAGS))
     goto end;
@@ -161,6 +163,7 @@ fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int flags,
   if (!port->raw)
     goto err;
 
+  port->outlet = outlet;
   port->flags = flags;
   port->type = type;
   port->obj = obj;
@@ -175,12 +178,14 @@ fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int flags,
     if (flags == 1) {
       port->flags &= ~FX_PF_CREAT;
       goto end;
-    } else if ((flags & FX_PF_CREAT) && port->add) {
+    } else if ((port->flags & FX_PF_CREAT) && port->add) {
       flags = port->add(port);
-      if (flags == 1)
+      if (flags == 1) {
+        port->stat = FX_PS_RUNNING;
         goto end;
-      else
+      } else {
         port->flags &= ~FX_PF_CREAT;
+      }
     }
   }
 
@@ -197,8 +202,10 @@ void fx_port_free(fx_port_t *port) {
     if (port->raw) {
       fx_port_close(port);
 
-      if ((port->flags & FX_PF_CREAT) && port->remove)
+      if ((port->flags & FX_PF_CREAT) && port->remove) {
         port->remove(port);
+        port->flags &= ~FX_PF_CREAT;
+      }
 
       free(port->raw);
     }
@@ -238,10 +245,30 @@ int fx_port_close(fx_port_t *port) {
   return ret;
 }
 
+static inline fx_obj_t **fx_port_export_oport(fx_port_t *port,
+                                              fx_port_type type) {
+  fx_obj_t **oport = NULL;
+  if (port->outlet && fx_port_type_check(type))
+    oport = fx_outlet_export(port->outlet, type);
+
+  if (!oport && port->obj)
+    oport = port->obj;
+
+  return oport;
+}
+
+static inline fx_obj_t **fx_port_validate_oport(fx_port_t *port,
+                                                fx_port_type type) {
+  fx_obj_t **obj = fx_port_export_oport(port, type);
+  return obj && (fx_outlet_validate_port(port->outlet, type) == 1)
+             ? obj
+             : (fx_obj_t **)NULL;
+}
+
 #pragma mark - fx_port_dev impl.
 FX_PORT_OP_DECLARE(dev_open) {
   int ret = SKF_ConnectDev(port->name.ptr, port->raw);
-  return ret == SAR_OK ? ret == SAR_OK : ret;
+  return ret == SAR_OK ? 1 : ret;
 }
 
 FX_PORT_OP_DECLARE(dev_close) {
@@ -254,16 +281,109 @@ FX_PORT_OP_DECLARE(dev_close) {
 }
 
 #pragma mark - fx_port_app impl.
-FX_PORT_OP_DECLARE(app_add) { return 0; }
-FX_PORT_OP_DECLARE(app_remove) { return 0; }
-FX_PORT_OP_DECLARE(app_open) { return 0; }
-FX_PORT_OP_DECLARE(app_close) { return 0; }
+FX_PORT_OP_DECLARE(app_add) {
+  int ret = 0;
+  fx_bytes_t pin = fx_bytes_empty();
+  fx_dev_t **pdev = (fx_dev_t **)fx_port_validate_oport(port, FX_DEV_PORT);
+  if (!pdev)
+    goto end;
+
+  pin = fx_outlet_get_pin(port->outlet);
+  if (!fx_bytes_check(&pin))
+    goto end;
+
+  ret = SKF_CreateApplication(*pdev, port->name.ptr, pin.ptr,
+                              FX_MAX_PIN_RETRIES, pin.ptr, FX_MAX_PIN_RETRIES,
+                              SECURE_EVERYONE_ACCOUNT, port->raw);
+  if (ret == SAR_OK)
+    ret = 1;
+
+  fx_bytes_free(&pin);
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(app_remove) {
+  int ret = 0;
+  fx_dev_t **pdev = (fx_dev_t **)fx_port_validate_oport(port, FX_DEV_PORT);
+  if (!pdev)
+    goto end;
+
+  ret = SKF_DeleteApplication(*pdev, port->name.ptr);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(app_open) {
+  int ret = 0;
+  fx_dev_t **pdev = (fx_dev_t **)fx_port_export_oport(port, FX_DEV_PORT);
+  if (!pdev)
+    goto end;
+
+  ret = SKF_OpenApplication(*pdev, port->name.ptr, port->raw);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(app_close) {
+  int ret = SKF_CloseApplication(*port->raw);
+  return ret == SAR_OK ? 1 : ret;
+}
 
 #pragma mark - fx_port_conta impl.
-FX_PORT_OP_DECLARE(conta_add) { return 0; }
-FX_PORT_OP_DECLARE(conta_remove) { return 0; }
-FX_PORT_OP_DECLARE(conta_open) { return 0; }
-FX_PORT_OP_DECLARE(conta_close) { return 0; }
+FX_PORT_OP_DECLARE(conta_add) {
+  int ret = 0;
+  fx_app_t **papp = (fx_app_t **)fx_port_validate_oport(port, FX_APP_PORT);
+  if (!papp)
+    goto end;
+
+  ret = SKF_CreateContainer(*papp, port->name.ptr, port->raw);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(conta_remove) {
+  int ret = 0;
+  fx_app_t **papp = (fx_app_t **)fx_port_validate_oport(port, FX_APP_PORT);
+  if (!papp)
+    goto end;
+
+  ret = SKF_DeleteContainer(*papp, port->name.ptr);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(conta_open) {
+  int ret = 0;
+  fx_app_t **papp = (fx_app_t **)fx_port_export_oport(port, FX_APP_PORT);
+  if (!papp)
+    goto end;
+
+  ret = SKF_OpenContainer(*papp, port->name.ptr, port->raw);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(conta_close) {
+  int ret = SKF_CloseContainer(*port->raw);
+  return ret == SAR_OK ? 1 : ret;
+}
 
 #pragma mark - fx_port_list_t
 typedef int (*fx_port_list_iter_fn)(fx_port_list_t *);
@@ -342,7 +462,6 @@ end:
 
 fx_port_list_t *fx_port_list_new(fx_port_type type, fx_obj_t *obj) {
   fx_port_list_t *plist = NULL;
-
   if (!fx_port_type_check(type))
     goto end;
 
@@ -404,7 +523,6 @@ const char *fx_port_list_peek_name2char(fx_port_list_t *plist, size_t idx,
 
 fx_bytes_t fx_port_list_get_name(fx_port_list_t *plist, size_t idx) {
   fx_bytes_t name = fx_bytes_empty();
-
   if (plist && idx < plist->offlen)
     name = fx_port_list_get_name_ex(plist, idx);
 
@@ -518,16 +636,38 @@ static int fx_outlet_unlock_dev(fx_outlet_t *outlet) {
   ret = SKF_DevAuth(*pdev, outlet->auth.ptr, outlet->auth.len);
   if (ret == SAR_OK)
     ret = 1;
+  else
+    fx_bytes_free(&outlet->auth);
 
 end:
   return ret;
 }
 
-static int fx_outlet_unlock_conta(fx_outlet_t *outlet) {}
+static int fx_outlet_unlock_conta(fx_outlet_t *outlet) {
+  int ret = 0;
+  fx_app_t **papp = (fx_app_t **)fx_port_export(outlet->papp);
+
+  if (!papp || !fx_bytes_check(&outlet->pin))
+    goto end;
+
+  ret = SKF_VerifyPIN(*papp, USER_TYPE, outlet->pin.ptr,
+                      (ULONG *)&outlet->pin.len);
+  if (ret == SAR_OK) {
+    ret = 1;
+    goto end;
+  } else {
+    ret = SKF_VerifyPIN(*papp, ADMIN_TYPE, outlet->pin.ptr,
+                        (ULONG *)&outlet->pin.len);
+    if (ret == SAR_OK)
+      ret = 1;
+  }
+
+end:
+  return ret;
+}
 
 fx_outlet_t *fx_outlet_new(const char *authkey, const char *pin) {
   fx_outlet_t *outlet = NULL;
-
   if (!authkey || !pin)
     goto end;
 
@@ -550,10 +690,10 @@ end:
 
 void fx_outlet_free(fx_outlet_t *outlet) {
   if (outlet) {
-    fx_outlet_validate_port(outlet, FX_CONTA_PORT);
+    fx_outlet_validate_port(outlet, FX_APP_PORT);
     fx_port_free(outlet->pconta);
 
-    fx_outlet_validate_port(outlet, FX_APP_PORT);
+    fx_outlet_validate_port(outlet, FX_DEV_PORT);
     fx_port_free(outlet->papp);
 
     fx_port_free(outlet->pdev);
@@ -573,40 +713,63 @@ fx_bytes_t fx_outlet_get_pin(fx_outlet_t *outlet) {
   return outlet ? fx_bytes_clone(outlet->pin) : fx_bytes_empty();
 }
 
+fx_obj_t **fx_outlet_export(fx_outlet_t *outlet, fx_port_type type) {
+  if (outlet)
+    switch (type) {
+    case FX_DEV_PORT:
+      return fx_port_export(outlet->pdev);
+
+    case FX_APP_PORT:
+      return fx_port_export(outlet->papp);
+
+    case FX_CONTA_PORT:
+      return fx_port_export(outlet->pconta);
+
+    default:
+      break;
+    }
+
+  return (fx_obj_t **)NULL;
+}
+
 int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
                        fx_port_t *port) {
-  if (!outlet)
-    return 0;
+  if (outlet) {
+    switch (type) {
+    case FX_DEV_PORT:
+      outlet->pdev = port;
+      break;
 
-  switch (type) {
-  case FX_DEV_PORT:
-    outlet->pdev = port;
-    break;
+    case FX_APP_PORT:
+      outlet->papp = port;
+      break;
 
-  case FX_APP_PORT:
-    outlet->papp = port;
-    break;
+    case FX_CONTA_PORT:
+      outlet->pconta = port;
+      break;
 
-  case FX_CONTA_PORT:
-    outlet->pconta = port;
-    break;
+    default:
+      goto end;
+    }
 
-  default:
-    return 0;
+    port->outlet = outlet;
+    return 1;
   }
-  return 1;
+
+end:
+  return 0;
 }
 
 int fx_outlet_validate_port(fx_outlet_t *outlet, fx_port_type type) {
-  if (!outlet)
-    return 0;
+  if (outlet)
+    switch (type) {
+    case FX_DEV_PORT:
+      return fx_outlet_unlock_dev(outlet);
+    case FX_APP_PORT:
+      return fx_outlet_unlock_conta(outlet);
+    default:
+      break;
+    }
 
-  switch (type) {
-  case FX_APP_PORT:
-    return fx_outlet_unlock_dev(outlet);
-  case FX_CONTA_PORT:
-    return fx_outlet_unlock_conta(outlet);
-  default:
-    return 0;
-  }
+  return 0;
 }

@@ -25,8 +25,6 @@
 extern "C" {
 #endif
 
-void test_fx_dev_port(void **state);
-void test_fx_port(void **state);
 void test_fx_outlet(void **state);
 
 #ifdef __cplusplus

@@ -22,54 +22,80 @@
 #include "test_outlet.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "cmocka_addon.h"
 
 #include "fx/outlet.h"
 
-void test_fx_dev_port(void **state) {
-  size_t len = 0;
-  char **list;
-  fx_port_list_t *dev_plist = fx_port_list_new(FX_DEV_PORT, NULL);
-  fx_bytes_t dev_pname;
-  fx_port_t *dev_port;
-  fx_outlet_t *outlet;
-  assert_ptr_not_equal(dev_plist, NULL);
+const char *app_name = "fx-keygen-app";
+const char *conta_name = "fx-keygen-conta";
 
-  assert_int_equal(fx_port_list_export2char(dev_plist, NULL, &len), 1);
-  assert_int_equal(len, fx_port_list_size(dev_plist));
+fx_bytes_t test_fx_port_list(fx_port_list_t *plist, size_t idx) {
+  char **list;
+  size_t len = 0;
+  fx_bytes_t port = fx_bytes_empty();
+  assert_ptr_not_equal(plist, NULL);
+  assert_int_equal(fx_port_list_export2char(plist, NULL, &len), 1);
+  assert_int_equal(len, fx_port_list_size(plist));
   assert_ptr_not_equal(list = (char **)test_calloc(len, sizeof(char *)), NULL);
-  assert_int_equal(fx_port_list_export2char(dev_plist, list, &len), 1);
+  assert_int_equal(fx_port_list_export2char(plist, list, &len), 1);
 
   for (size_t i = 0; i < len; ++i) {
     print_message("[dev port %d] %s\n", i, *(list + i));
     if (*(list + i))
       free(*(list + i));
   }
-
-  dev_pname = fx_port_list_get_name(dev_plist, 0);
-  assert_int_equal(fx_bytes_check(&dev_pname), 1);
-  print_message("[dev port 0] peek: %s\n", dev_pname.ptr);
-
-  assert_ptr_not_equal(
-      dev_port = fx_port_new(FX_DEV_PORT, dev_pname, FX_PF_OPEN, NULL), NULL);
-  assert_int_equal(fx_port_busy(dev_port), 1);
-
-  assert_ptr_not_equal(outlet = fx_outlet_new("1234567812345678", "12345678"),
-                       NULL);
-  assert_int_equal(fx_outlet_set_port(outlet, FX_DEV_PORT, dev_port), 1);
-  assert_int_equal(fx_outlet_validate_port(outlet, FX_APP_PORT), 1);
-
-  fx_outlet_free(outlet);
   test_free(list);
-  fx_port_list_free(dev_plist);
+
+  return fx_port_list_get_name(plist, idx);
 }
 
-void test_fx_port(void **state) {}
-
 void test_fx_outlet(void **state) {
-  const char *pin = "12345678";
-  // fx_outlet_t *outlet = fx_outlet_new(pin);
-  // assert_ptr_not_equal(outlet, NULL);
-  // assert_string_equal(fx_outlet_get_pin(outlet), pin);
+  fx_port_list_t *plist = fx_port_list_new(FX_DEV_PORT, NULL);
+  fx_bytes_t port_name = fx_bytes_empty();
+  fx_port_t *port;
+  fx_outlet_t *outlet = fx_outlet_new("1234567812345678", "12345678");
+
+  assert_ptr_not_equal(outlet, NULL);
+
+  port_name = test_fx_port_list(plist, 0);
+  assert_int_equal(fx_bytes_check(&port_name), 1);
+  print_message("[dev port 0] load: %s\n", port_name.ptr);
+  assert_ptr_not_equal(
+      port = fx_port_new(FX_DEV_PORT, port_name, FX_PF_OPEN, NULL, NULL), NULL);
+  assert_int_equal(fx_port_busy(port), 1);
+  assert_int_equal(fx_outlet_set_port(outlet, FX_DEV_PORT, port), 1);
+  fx_bytes_free(&port_name);
+  fx_port_list_free(plist);
+
+  plist = fx_port_list_new(FX_APP_PORT, fx_port_export(port));
+  port_name = plist ? test_fx_port_list(plist, 0)
+                    : fx_bytes_new((uint8_t *)app_name, strlen(app_name));
+  assert_int_equal(fx_bytes_check(&port_name), 1);
+  print_message("[app port 0] load: %s\n", port_name.ptr);
+  assert_ptr_not_equal(port = fx_port_new(FX_APP_PORT, port_name,
+                                          FX_PF_OPEN | FX_PF_CREAT, outlet,
+                                          fx_port_export(port)),
+                       NULL);
+  assert_int_equal(fx_port_busy(port), 1);
+  assert_int_equal(fx_outlet_set_port(outlet, FX_APP_PORT, port), 1);
+  fx_bytes_free(&port_name);
+  fx_port_list_free(plist);
+
+  plist = fx_port_list_new(FX_CONTA_PORT, fx_port_export(port));
+  port_name = plist ? test_fx_port_list(plist, 0)
+                    : fx_bytes_new((uint8_t *)conta_name, strlen(conta_name));
+  assert_int_equal(fx_bytes_check(&port_name), 1);
+  print_message("[conta port 0] load: %s\n", port_name.ptr);
+  assert_ptr_not_equal(port = fx_port_new(FX_CONTA_PORT, port_name,
+                                          FX_PF_OPEN | FX_PF_CREAT, outlet,
+                                          fx_port_export(port)),
+                       NULL);
+  assert_int_equal(fx_port_busy(port), 1);
+  assert_int_equal(fx_outlet_set_port(outlet, FX_CONTA_PORT, port), 1);
+  fx_bytes_free(&port_name);
+  fx_port_list_free(plist);
+
+  fx_outlet_free(outlet);
 }

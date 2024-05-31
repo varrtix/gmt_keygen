@@ -32,9 +32,11 @@ extern "C" {
 #include <fx/utils.h>
 
 typedef void fx_obj_t;
+typedef struct fx_outlet fx_outlet_t;
+typedef struct fx_port fx_port_t;
+typedef struct fx_port_list fx_port_list_t;
 
 #pragma mark - fx_port_t
-typedef struct fx_port fx_port_t;
 typedef enum {
   FX_DEFAULT_PORT = 0,
   FX_DEV_PORT,
@@ -50,7 +52,7 @@ typedef enum {
 } fx_port_flag_t;
 
 fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int flags,
-                       fx_obj_t *obj);
+                       fx_outlet_t *outlet, fx_obj_t *obj);
 void fx_port_free(fx_port_t *port);
 
 int fx_port_open(fx_port_t *port);
@@ -59,8 +61,6 @@ int fx_port_busy(fx_port_t *port);
 fx_obj_t **fx_port_export(fx_port_t *port);
 
 #pragma mark - fx_port_list_t
-typedef struct fx_port_list fx_port_list_t;
-
 fx_port_list_t *fx_port_list_new(fx_port_type type, fx_obj_t *obj);
 void fx_port_list_free(fx_port_list_t *plist);
 
@@ -71,13 +71,12 @@ fx_bytes_t fx_port_list_get_name(fx_port_list_t *plist, size_t idx);
 int fx_port_list_export2char(fx_port_list_t *plist, char **list, size_t *nlen);
 
 #pragma mark - fx_outlet_t
-typedef struct fx_outlet fx_outlet_t;
-
 fx_outlet_t *fx_outlet_new(const char *authkey, const char *pin);
 void fx_outlet_free(fx_outlet_t *outlet);
 
 const char *fx_outlet_peek_pin2char(fx_outlet_t *outlet);
 fx_bytes_t fx_outlet_get_pin(fx_outlet_t *outlet);
+fx_obj_t **fx_outlet_export(fx_outlet_t *outlet, fx_port_type type);
 int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type, fx_port_t *port);
 int fx_outlet_validate_port(fx_outlet_t *outlet, fx_port_type type);
 

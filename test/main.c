@@ -27,8 +27,6 @@
 int main(int argc, char const *argv[]) {
   const struct CMUnitTest tests[] = {
       unit_test(test_ubytes),
-      unit_test(test_fx_dev_port),
-      unit_test(test_fx_port),
       unit_test(test_fx_outlet),
   };
   return cmocka_run_group_tests(tests, NULL, NULL);

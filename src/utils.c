@@ -24,7 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#pragma mark - vchunk_t
+#pragma mark - fx_bytes_t
 fx_bytes_t fx_bytes_new(uint8_t *ptr, size_t len) {
   return (fx_bytes_t){
       .ptr = ptr,
@@ -53,5 +53,34 @@ void fx_bytes_free(fx_bytes_t *ubytes) {
     free(ubytes->ptr);
     ubytes->ptr = NULL;
     ubytes->len = 0;
+  }
+}
+
+#pragma mark - fx_field_t
+fx_field_t fx_field_new(uint16_t t, uint16_t l, uint8_t *v) {
+  return (fx_field_t){.t = t, .l = l, .v = v};
+}
+
+fx_field_t fx_field_calloc(uint16_t t, uint16_t l) {
+  fx_field_t f = fx_field_empty(t);
+  if (l) {
+    f = fx_field_new(t, l, calloc(l, sizeof(uint8_t)));
+    f.l = f.v ? l : 0;
+  }
+  return f;
+}
+
+fx_field_t fx_field_clone(fx_field_t f) {
+  fx_field_t nf = fx_field_calloc(f.t, f.l);
+  if (nf.v)
+    memcpy(nf.v, f.v, f.l);
+  return nf;
+}
+
+void fx_field_free(fx_field_t *f) {
+  if (f->v) {
+    free(f->v);
+    f->v = NULL;
+    f->t = f->l = 0;
   }
 }

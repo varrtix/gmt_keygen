@@ -80,6 +80,28 @@ fx_obj_t **fx_outlet_export(fx_outlet_t *outlet, fx_port_type type);
 int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type, fx_port_t *port);
 int fx_outlet_validate_port(fx_outlet_t *outlet, fx_port_type type);
 
+#pragma mark - crypto
+typedef enum {
+  FX_FC_SMS4_ECB = 0,
+  FX_FC_SMS4_CBC,
+  FX_FC_SMS4_CFB,
+  FX_FC_SMS4_OFB,
+  FX_FC_MAX,
+} fx_cipher_type;
+
+static inline int fx_cipher_type_check(fx_cipher_type type) {
+  return (type >= FX_FC_SMS4_ECB) && (type < FX_FC_MAX);
+}
+
+fx_bytes_t fx_outlet_gen_ecckey(fx_outlet_t *outlet);
+fx_bytes_t fx_outlet_gen_random(fx_outlet_t *outlet, size_t len);
+fx_bytes_t fx_outlet_ecc_sign(fx_outlet_t *outlet, fx_bytes_t in, int preproc);
+fx_bytes_t fx_outlet_sm3_digest(fx_outlet_t *outlet, fx_bytes_t in);
+fx_bytes_t fx_outlet_encrypt(fx_outlet_t *outlet, fx_cipher_type type,
+                             fx_bytes_t key, fx_bytes_t iv, fx_bytes_t in);
+fx_bytes_t fx_outlet_decrypt(fx_outlet_t *outlet, fx_cipher_type type,
+                             fx_bytes_t key, fx_bytes_t iv, fx_bytes_t in);
+
 #ifdef __cplusplus
 }
 #endif

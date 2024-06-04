@@ -21,47 +21,60 @@
 
 #pragma once
 
+#include <fx/outlet.h>
 #include <fx/utils.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#pragma mark - epdt_auc_t
-typedef struct epdt_auc epdt_auc_t;
+#pragma mark - fx_ioctx_t
+typedef enum {
+  FX_DEFAULT_IO = 0,
+  FX_SK_IO,
+  FX_TF_IO,
+  FX_MAX_IO,
+} fx_io_type;
 
-epdt_auc_t *epdt_auc_new(void);
-void epdt_auc_free(epdt_auc_t *auc);
+typedef struct fx_ioctx fx_ioctx_t;
 
-int epdt_auc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
-                    epdt_auc_t *auc);
+fx_ioctx_t *fx_ioctx_new(fx_io_type type, fx_bytes_t sig_pubkey,
+                         fx_outlet_t *outlet);
+void fx_ioctx_free(fx_ioctx_t *ctx);
 
-#pragma mark - epdt_enc_t
-typedef struct epdt_enc epdt_enc_t;
+#pragma mark - fx_auc_t
+typedef struct fx_auc fx_auc_t;
 
-epdt_enc_t *epdt_enc_new(void);
-void epdt_enc_free(epdt_enc_t *enc);
+fx_auc_t *fx_auc_keygen(fx_ioctx_t *ctx, fx_bytes_t dev_id, fx_bytes_t prov_id,
+                        fx_bytes_t kmc_id);
+void fx_auc_free(fx_auc_t *auc);
 
-int epdt_enc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
-                    fx_bytes_t auc_id, epdt_enc_t *enc);
+#pragma mark - fx_enc_t
+typedef struct fx_enc fx_enc_t;
 
-#pragma mark - epdt_bm_t
-typedef struct epdt_bm epdt_bm_t;
+fx_enc_t *fx_enc_new(void);
+void fx_enc_free(fx_enc_t *enc);
 
-epdt_bm_t *epdt_bm_new(void);
-void epdt_bm_free(epdt_bm_t *bm);
+int fx_enc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
+                  fx_bytes_t auc_id, fx_enc_t *enc);
 
-int epdt_bm_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
-                   epdt_bm_t *bm);
+#pragma mark - fx_bm_t
+typedef struct fx_bm fx_bm_t;
 
-#pragma mark - epdt_kmc_t
-typedef struct epdt_kmc epdt_kmc_t;
+fx_bm_t *fx_bm_new(void);
+void fx_bm_free(fx_bm_t *bm);
 
-epdt_kmc_t *epdt_kmc_new(void);
-void epdt_kmc_free(epdt_kmc_t *kmc);
+int fx_bm_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
+                 fx_bm_t *bm);
 
-int epdt_kmc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t auc_id,
-                    epdt_kmc_t *kmc);
+#pragma mark - fx_kmc_t
+typedef struct fx_kmc fx_kmc_t;
+
+fx_kmc_t *fx_kmc_new(void);
+void fx_kmc_free(fx_kmc_t *kmc);
+
+int fx_kmc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t auc_id,
+                  fx_kmc_t *kmc);
 
 #ifdef __cplusplus
 }

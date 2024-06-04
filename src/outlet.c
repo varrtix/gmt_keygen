@@ -26,12 +26,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "fx/utils.h"
 #include "skfapi.h"
 
 #define FX_MAX_PIN_RETRIES 10
 #define FX_MAX_AUTH_LEN 16
 #define FX_MAX_AUTH_RAND_LEN 8
+#define FX_MAX_SM3_LEN 32
 
 #define FX_DEDUP_VAR(v) _##v
 
@@ -585,7 +585,6 @@ static int fx_outlet_gen_auth(fx_outlet_t *outlet, fx_dev_t **pdev) {
       !fx_bytes_check(&outlet->authkey) || !fx_bytes_check(&block))
     goto end;
 
-  if (fx_bytes_check(&outlet->auth))
     fx_bytes_free(&outlet->auth);
 
   outlet->auth = fx_bytes_calloc(FX_MAX_AUTH_LEN);
@@ -714,27 +713,31 @@ fx_bytes_t fx_outlet_get_pin(fx_outlet_t *outlet) {
 }
 
 fx_obj_t **fx_outlet_export(fx_outlet_t *outlet, fx_port_type type) {
+  fx_port_t *port = NULL;
   if (outlet)
     switch (type) {
     case FX_DEV_PORT:
-      return fx_port_export(outlet->pdev);
+      port = outlet->pdev;
+      break;
 
     case FX_APP_PORT:
-      return fx_port_export(outlet->papp);
+      port = outlet->papp;
+      break;
 
     case FX_CONTA_PORT:
-      return fx_port_export(outlet->pconta);
+      port = outlet->pconta;
+      break;
 
     default:
       break;
     }
 
-  return (fx_obj_t **)NULL;
+  return fx_port_export(port);
 }
 
 int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
                        fx_port_t *port) {
-  if (outlet) {
+  if (outlet && fx_port_busy(port) == 1) {
     switch (type) {
     case FX_DEV_PORT:
       outlet->pdev = port;
@@ -772,4 +775,203 @@ int fx_outlet_validate_port(fx_outlet_t *outlet, fx_port_type type) {
     }
 
   return 0;
+}
+
+#pragma mark - crypto
+#define FX_OUTLET_GEN_BYTES_DECLARE(name)                                      \
+  int fx_outlet_gen_##name##_impl(fx_outlet_t *outlet, fx_port_type type,      \
+                                  fx_obj_t **port, fx_bytes_t in,              \
+                                  fx_bytes_t *out, fx_obj_t *obj)
+
+typedef int (*fx_outlet_gen_bytes_fn)(fx_outlet_t *, fx_port_type, fx_obj_t **,
+                                      fx_bytes_t, fx_bytes_t *, fx_obj_t *);
+
+static fx_bytes_t fx_outlet_gen_bytes(fx_outlet_t *outlet, fx_port_type type,
+                                      fx_bytes_t in, size_t olen, int validate,
+                                      fx_obj_t *obj,
+                                      fx_outlet_gen_bytes_fn fn) {
+  int ret = 0;
+  fx_bytes_t out = fx_bytes_empty();
+  fx_obj_t **port = fx_outlet_export(outlet, type);
+  if (fn && port && *port) {
+    if (!!validate && fx_port_type_check(type) && type != FX_DEV_PORT)
+      fx_outlet_validate_port(outlet, type - 1);
+
+    if (olen) {
+      out = fx_bytes_calloc(olen);
+      if (!fx_bytes_check(&out))
+        goto end;
+    }
+
+    ret = fn(outlet, type, port, in, &out, obj);
+    if (ret != 1)
+      fx_bytes_free(&out);
+  }
+
+end:
+  return out;
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(ecckey) {
+  int ret = SKF_GenECCKeyPair(*(fx_conta_t **)port, SGD_SM2_1,
+                              (ECCPUBLICKEYBLOB *)out->ptr);
+  return ret == SAR_OK ? 1 : ret;
+}
+
+fx_bytes_t fx_outlet_gen_ecckey(fx_outlet_t *outlet) {
+  return fx_outlet_gen_bytes(outlet, FX_CONTA_PORT, fx_bytes_empty(),
+                             sizeof(ECCPUBLICKEYBLOB), 1, NULL,
+                             fx_outlet_gen_ecckey_impl);
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(random) {
+  int ret = SKF_GenRandom(*(fx_dev_t **)port, out->ptr, out->len);
+  return ret == SAR_OK ? 1 : ret;
+}
+
+fx_bytes_t fx_outlet_gen_random(fx_outlet_t *outlet, size_t len) {
+  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, fx_bytes_empty(), len, 0,
+                             NULL, fx_outlet_gen_random_impl);
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(ecc_sign) {
+  int ret = SKF_ECCSignData(*(fx_conta_t **)port, in.ptr, in.len,
+                            (PECCSIGNATUREBLOB)out->ptr);
+  return ret == SAR_OK ? 1 : ret;
+}
+
+fx_bytes_t fx_outlet_ecc_sign(fx_outlet_t *outlet, fx_bytes_t in, int preproc) {
+  fx_bytes_t procin = fx_bytes_new(in.ptr, in.len);
+  if (preproc)
+    procin = fx_outlet_sm3_digest(outlet, in);
+
+  in = fx_outlet_gen_bytes(outlet, FX_CONTA_PORT, procin,
+                           sizeof(ECCSIGNATUREBLOB), 0, NULL,
+                           fx_outlet_gen_ecc_sign_impl);
+  if (preproc)
+    fx_bytes_free(&procin);
+
+  return in;
+}
+
+static FX_OUTLET_GEN_BYTES_DECLARE(sm3_digest) {
+  fx_raw_port_t rport = NULL;
+  int flag = !!(out->ptr),
+      ret = SKF_DigestInit(*(fx_dev_t **)port, SGD_SM3, NULL, NULL, 0, &rport);
+  if (ret == SAR_OK) {
+    ret = SKF_Digest(rport, in.ptr, in.len, out->ptr, (ULONG *)&out->len);
+    if (ret == SAR_OK && out->len) {
+      if (flag) {
+        ret = 1;
+        goto end;
+      }
+
+      *out = fx_bytes_calloc(out->len);
+      if (fx_bytes_check(out)) {
+        ret = SKF_Digest(rport, in.ptr, in.len, out->ptr, (ULONG *)&out->len);
+        if (ret == SAR_OK)
+          ret = 1;
+      }
+    }
+  }
+
+end:
+  return ret;
+}
+
+fx_bytes_t fx_outlet_sm3_digest(fx_outlet_t *outlet, fx_bytes_t in) {
+  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, 0, 0, NULL,
+                             fx_outlet_gen_sm3_digest_impl);
+}
+
+typedef ULONG (*fx_outlet_crypto_init_fn)(fx_raw_port_t, fx_cipher_ctx_t);
+typedef ULONG (*fx_outlet_crypto_fn)(fx_raw_port_t, uint8_t *, ULONG, uint8_t *,
+                                     ULONG *);
+typedef struct {
+  fx_cipher_type type;
+  fx_bytes_t key, iv;
+} fx_crypto_ctx_t;
+
+static int fx_outlet_crypto_preproc(fx_cipher_type type, fx_obj_t **port,
+                                    fx_obj_t *obj, fx_raw_port_t *rport,
+                                    fx_cipher_ctx_t *cctx) {
+  fx_crypto_ctx_t *ctx = (fx_crypto_ctx_t *)obj;
+  ULONG algo_id =
+      fx_cipher_type_check(ctx->type) ? (SGD_SM4_ECB << ctx->type) : ctx->type;
+  int ret = SKF_SetSymmKey(*(fx_dev_t **)port, ctx->key.ptr, algo_id, rport);
+  if (ret == SAR_OK) {
+    ret = 1;
+    if (fx_bytes_check(&ctx->iv) && ctx->iv.len <= MAX_IV_LEN) {
+      cctx->PaddingType = 1;
+      cctx->IVLen = ctx->iv.len;
+      memcpy(cctx->IV, ctx->iv.ptr, ctx->iv.len);
+    }
+  }
+
+  return ret;
+}
+
+static int fx_outlet_gen_crypto(fx_outlet_t *outlet, fx_port_type type,
+                                fx_obj_t **port, fx_bytes_t in, fx_bytes_t *out,
+                                fx_obj_t *obj,
+                                fx_outlet_crypto_init_fn crypto_init_fn,
+                                fx_outlet_crypto_fn crypto_fn) {
+  fx_raw_port_t rport = NULL;
+  fx_cipher_ctx_t cctx = {0};
+  int flag = !!(out->ptr),
+      ret = fx_outlet_crypto_preproc(type, port, obj, &rport, &cctx);
+  if (ret == 1 && crypto_init_fn) {
+    ret = crypto_init_fn(rport, cctx);
+    if (ret == SAR_OK && crypto_fn) {
+      ret = crypto_fn(rport, in.ptr, in.len, out->ptr, (ULONG *)&out->len);
+      if (ret == SAR_OK && out->len) {
+        if (flag) {
+          ret = 1;
+          goto end;
+        }
+
+        *out = fx_bytes_calloc(out->len);
+        if (fx_bytes_check(out)) {
+          ret = crypto_fn(rport, in.ptr, in.len, out->ptr, (ULONG *)&out->len);
+          if (ret == SAR_OK)
+            ret = 1;
+        }
+      }
+    }
+  }
+
+end:
+  return ret;
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(encrypt) {
+  return fx_outlet_gen_crypto(outlet, type, port, in, out, obj, SKF_EncryptInit,
+                              SKF_Encrypt);
+}
+
+fx_bytes_t fx_outlet_encrypt(fx_outlet_t *outlet, fx_cipher_type type,
+                             fx_bytes_t key, fx_bytes_t iv, fx_bytes_t in) {
+  fx_crypto_ctx_t ctx = {
+      .type = type,
+      .key = key,
+      .iv = iv,
+  };
+  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, 0, 0, &ctx,
+                             fx_outlet_gen_encrypt_impl);
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(decrypt) {
+  return fx_outlet_gen_crypto(outlet, type, port, in, out, obj, SKF_DecryptInit,
+                              SKF_Decrypt);
+}
+
+fx_bytes_t fx_outlet_decrypt(fx_outlet_t *outlet, fx_cipher_type type,
+                             fx_bytes_t key, fx_bytes_t iv, fx_bytes_t in) {
+  fx_crypto_ctx_t ctx = {
+      .type = type,
+      .key = key,
+      .iv = iv,
+  };
+  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, 0, 0, &ctx,
+                             fx_outlet_gen_decrypt_impl);
 }

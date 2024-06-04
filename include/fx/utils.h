@@ -44,6 +44,41 @@ static inline int fx_bytes_check(fx_bytes_t *bytes) {
   return bytes->ptr && bytes->len;
 }
 
+#pragma mark - fx_field_t
+typedef struct {
+  uint16_t t;
+  uint16_t l;
+  uint8_t *v;
+} fx_field_t;
+
+fx_field_t fx_field_new(uint16_t t, uint16_t l, uint8_t *v);
+fx_field_t fx_field_calloc(uint16_t t, uint16_t l);
+fx_field_t fx_field_clone(fx_field_t f);
+void fx_field_free(fx_field_t *f);
+
+static const size_t FX_FIELD_PREFIX_SIZE =
+    sizeof(fx_field_t) - sizeof(uint8_t *);
+
+static inline fx_field_t fx_field_empty(uint16_t t) {
+  return fx_field_new(t, 0, NULL);
+}
+static inline int fx_field_check(fx_field_t *f) { return f->l && f->v; }
+static inline size_t fx_field_capacity(fx_field_t *f) {
+  return FX_FIELD_PREFIX_SIZE + f->l;
+}
+static inline fx_field_t fx_bytes2field(uint16_t t, fx_bytes_t b) {
+  return fx_field_new(t, b.len, b.ptr);
+}
+static inline fx_field_t fx_bytes2field_clone(uint16_t t, fx_bytes_t b) {
+  return fx_bytes2field(t, fx_bytes_clone(b));
+}
+static inline fx_bytes_t fx_field2bytes(fx_field_t f) {
+  return fx_bytes_new(f.v, f.l);
+}
+static inline fx_bytes_t fx_field2bytes_clone(fx_field_t f) {
+  return fx_field2bytes(fx_field_clone(f));
+}
+
 #ifdef __cplusplus
 }
 #endif

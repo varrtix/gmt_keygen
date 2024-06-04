@@ -71,9 +71,12 @@ struct fx_ioctx {
   fx_outlet_t *outlet;
 };
 
-static int fx_ioctx_init(fx_ioctx_t *ctx) {
+static int fx_ioctx_init(fx_ioctx_t *ctx, fx_bytes_t sig_pubkey) {
+
   ctx->sig_pubkey =
-      fx_bytes2field(FX_FTAG_PUBKEY, fx_outlet_gen_ecckey(ctx->outlet));
+      fx_bytes_check(&sig_pubkey)
+          ? fx_bytes2field_clone(FX_FTAG_PUBKEY, sig_pubkey)
+          : fx_bytes2field(FX_FTAG_PUBKEY, fx_outlet_gen_ecckey(ctx->outlet));
   return fx_field_check(&ctx->sig_pubkey);
 }
 
@@ -87,8 +90,7 @@ fx_ioctx_t *fx_ioctx_new(fx_io_type type, fx_bytes_t sig_pubkey,
   if (ctx) {
     ctx->type = type;
     ctx->outlet = outlet;
-
-    if (fx_ioctx_init(ctx) != 1) {
+    if (fx_ioctx_init(ctx, sig_pubkey) != 1) {
       fx_ioctx_free(ctx);
       ctx = NULL;
     }
@@ -100,6 +102,7 @@ end:
 
 void fx_ioctx_free(fx_ioctx_t *ctx) {
   if (ctx) {
+    fx_field_free(&ctx->sig_pubkey);
     free(ctx);
   }
 }

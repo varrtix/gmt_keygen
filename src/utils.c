@@ -86,20 +86,54 @@ void fx_field_free(fx_field_t *f) {
   }
 }
 
+fx_bytes_t fx_field2bytes_flat(fx_field_t f) {
+  static const size_t offset = sizeof(uint16_t);
+  size_t l = fx_field_capacity(&f);
+  fx_bytes_t ff = fx_bytes_empty();
+  uint8_t *p;
+  if (l) {
+    ff = fx_bytes_calloc(l);
+    if (fx_bytes_check(&ff)) {
+      p = ff.ptr;
+      memcpy(p, &f, offset);
+      p += offset;
+      memcpy(p, &f + offset, offset);
+      p += offset;
+      memcpy(p, f.v, sizeof(uint8_t) * l);
+    }
+  }
+  return ff;
+}
+
 #pragma mark - fx_chunk_t
+#define FX_CHUNK_FOR_EACH(chunk, idx, elem)                                    \
+  fx_bytes_t *elem;                                                            \
+  for (size_t idx = 0; idx < chunk->n; ++idx)                                  \
+    if (elem = fx_chunk_get_element(chunk, idx))
+
 struct fx_chunk {
-  size_t n, flat_len;
-  fx_bytes_t nlist;
-  fx_bytes_t *blist;
+  size_t n, flat_size;
+  fx_bytes_t list;
 };
+
+static inline int fx_chunk_check(fx_chunk_t *chunk) {
+  return chunk && chunk->n && fx_bytes_check(&chunk->list);
+}
+
+static inline fx_bytes_t *fx_chunk_get_blist(fx_chunk_t *chunk) {
+  return (fx_bytes_t *)chunk->list.ptr;
+}
+
+static inline fx_bytes_t *fx_chunk_get_element(fx_chunk_t *chunk, size_t idx) {
+  return fx_chunk_get_blist(chunk) + idx;
+}
 
 static inline fx_chunk_t *fx_chunk_new(size_t n) {
   fx_chunk_t *chunk = NULL;
   if (n && (chunk = (fx_chunk_t *)calloc(1, sizeof(fx_chunk_t)))) {
     chunk->n = n;
-    chunk->nlist = fx_bytes_calloc(n * sizeof(size_t));
-    chunk->blist = (fx_bytes_t *)calloc(n, sizeof(fx_bytes_t));
-    if (!chunk->blist || !fx_bytes_check(&chunk->nlist)) {
+    chunk->list = fx_bytes_calloc(n * sizeof(fx_bytes_t));
+    if (!fx_bytes_check(&chunk->list)) {
       fx_chunk_free(chunk);
       chunk = NULL;
     }
@@ -109,18 +143,17 @@ static inline fx_chunk_t *fx_chunk_new(size_t n) {
 
 static inline fx_chunk_t *fx_chunk_pack_ex(size_t n, void *list,
                                            fx_bytes_t (*iter)(void *, size_t)) {
-  size_t mlen = 0;
-  fx_chunk_t *chunk = fx_chunk_new(n);
-  if (chunk) {
-    for (size_t i = 0; i < n; ++i)
-      mlen += *(((size_t *)chunk->nlist.ptr) + i) =
-          (*(chunk->blist + i) = fx_bytes_clone(iter(list, i))).len;
+  fx_chunk_t *chunk = NULL;
+  if (list) {
+    if (chunk = fx_chunk_new(n)) {
+      FX_CHUNK_FOR_EACH(chunk, i, v) {
+        chunk->flat_size += (*v = fx_bytes_clone(iter(list, i))).len;
+      }
 
-    if (mlen) {
-      chunk->flat_len = mlen;
-    } else {
-      fx_chunk_free(chunk);
-      chunk = NULL;
+      if (!chunk->flat_size) {
+        fx_chunk_free(chunk);
+        chunk = NULL;
+      }
     }
   }
   return chunk;
@@ -148,13 +181,47 @@ fx_chunk_t *fx_chunk_pack_arr(size_t n, const fx_bytes_t list[]) {
 
 void fx_chunk_free(fx_chunk_t *chunk) {
   if (chunk) {
-    if (chunk->blist) {
-      for (size_t i = 0; i < chunk->n; ++i)
-        fx_bytes_free(chunk->blist + i);
+    if (fx_bytes_check(&chunk->list)) {
+      FX_CHUNK_FOR_EACH(chunk, i, v) {
+        fx_bytes_free(fx_chunk_get_element(chunk, i));
+      }
 
-      free(chunk->blist);
+      fx_bytes_free(&chunk->list);
     }
-    fx_bytes_free(&chunk->nlist);
     free(chunk);
   }
+}
+
+size_t fx_chunk_get_size(fx_chunk_t *chunk) {
+  return fx_chunk_check(chunk) ? chunk->n : 0;
+}
+
+size_t fx_chunk_get_flat_size(fx_chunk_t *chunk) {
+  return fx_chunk_check(chunk) ? chunk->flat_size : 0;
+}
+
+fx_bytes_t fx_chunk_peek(fx_chunk_t *chunk, size_t idx) {
+  return idx < fx_chunk_get_size(chunk) ? *fx_chunk_get_element(chunk, idx)
+                                        : fx_bytes_empty();
+}
+
+fx_bytes_t fx_chunk_get(fx_chunk_t *chunk, size_t idx) {
+  return fx_bytes_clone(fx_chunk_peek(chunk, idx));
+}
+
+fx_bytes_t fx_chunk_flat(fx_chunk_t *chunk) {
+  size_t flat_size = fx_chunk_get_flat_size(chunk);
+  fx_bytes_t flat_chunk =
+      flat_size ? fx_bytes_calloc(flat_size) : fx_bytes_empty();
+  if (fx_bytes_check(&flat_chunk)) {
+    flat_size = 0;
+    FX_CHUNK_FOR_EACH(chunk, i, v) {
+      memcpy(flat_chunk.ptr + flat_size, v->ptr, v->len);
+      flat_size += v->len;
+    }
+
+    if (flat_size != flat_chunk.len)
+      fx_bytes_free(&flat_chunk);
+  }
+  return flat_chunk;
 }

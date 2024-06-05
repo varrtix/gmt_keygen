@@ -58,7 +58,6 @@ void test_fx_outlet(void **state) {
   fx_port_t *port;
   fx_outlet_t *outlet = fx_outlet_new("1234567812345678", "12345678");
   fx_ioctx_t *ioctx;
-  fx_auc_t *auc;
 
   assert_ptr_not_equal(outlet, NULL);
 
@@ -100,14 +99,14 @@ void test_fx_outlet(void **state) {
   fx_bytes_free(&port_name);
   fx_port_list_free(plist);
 
-  assert_ptr_not_equal(
-      ioctx = fx_ioctx_new(FX_DEFAULT_IO, fx_bytes_empty(), outlet), NULL);
-  assert_ptr_not_equal(
-      auc = fx_auc_keygen(
-          ioctx, fx_bytes_new((uint8_t *)app_name, strlen(app_name)),
-          fx_bytes_new("Jiangsu", 7),
-          fx_bytes_new((uint8_t *)conta_name, strlen(conta_name))),
-      NULL);
+  assert_ptr_not_equal(ioctx = fx_ioctx_new(fx_bytes_empty()), NULL);
+  // assert_ptr_not_equal(
+  //     auc = fx_auc_keygen(
+  //         ioctx, fx_bytes_new((uint8_t *)app_name, strlen(app_name)),
+  //         fx_bytes_new("Jiangsu", 7),
+  //         fx_bytes_new((uint8_t *)conta_name, strlen(conta_name))),
+  //     NULL);
 
+  fx_ioctx_free(ioctx);
   fx_outlet_free(outlet);
 }

@@ -79,6 +79,8 @@ static inline fx_bytes_t fx_field2bytes_clone(fx_field_t f) {
   return fx_field2bytes(fx_field_clone(f));
 }
 
+fx_bytes_t fx_field2bytes_flat(fx_field_t f);
+
 #pragma mark - fx_chunk_t
 typedef struct fx_chunk fx_chunk_t;
 
@@ -86,8 +88,10 @@ fx_chunk_t *fx_chunk_pack(size_t n, ...);
 fx_chunk_t *fx_chunk_pack_arr(size_t n, const fx_bytes_t list[]);
 void fx_chunk_free(fx_chunk_t *chunk);
 
-fx_bytes_t fx_chunk_peek(size_t idx);
-fx_bytes_t fx_chunk_get(size_t idx);
+size_t fx_chunk_get_size(fx_chunk_t *chunk);
+size_t fx_chunk_get_flat_size(fx_chunk_t *chunk);
+fx_bytes_t fx_chunk_peek(fx_chunk_t *chunk, size_t idx);
+fx_bytes_t fx_chunk_get(fx_chunk_t *chunk, size_t idx);
 
 fx_bytes_t fx_chunk_flat(fx_chunk_t *chunk);
 

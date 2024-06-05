@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <fx/outlet.h>
 #include <fx/utils.h>
 
 #ifdef __cplusplus
@@ -33,14 +32,23 @@ extern "C" {
 
 #pragma mark - fx_ioctx_t
 typedef struct fx_ioctx fx_ioctx_t;
+typedef enum {
+  FX_IOPT_INITCON = 0,
+  FX_IOPT_OUTLET,
+  FX_IOPT_PUBKEY,
+  FX_IOPT_MAX,
+} fx_ioctx_opt;
 
-fx_ioctx_t *fx_ioctx_new(fx_outlet_t *outlet, fx_bytes_t sig_pubkey);
+fx_ioctx_t *fx_ioctx_new(void);
 void fx_ioctx_free(fx_ioctx_t *ctx);
+
+int fx_ioctx_set(fx_ioctx_t *ctx, fx_ioctx_opt opt, void *val);
 
 #pragma mark - fx_keychain_t
 typedef struct fx_keychain fx_keychain_t;
 typedef enum {
-  FX_AUC_KEYCHAIN = 0,
+  FX_UNKNOWN_KEYCHAIN = 0,
+  FX_AUC_KEYCHAIN,
   FX_ENC_KEYCHAIN,
   FX_BM_KEYCHAIN,
   FX_KMC_KEYCHAIN,
@@ -55,7 +63,7 @@ void fx_keychain_destroy(fx_keychain_t *kc);
 
 fx_keychain_type fx_keychain_get_type(fx_keychain_t *kc);
 fx_bytes_t fx_keychain_get_kte(fx_keychain_t *kc);
-fx_bytes_t fx_keychain_get_ktk(fx_keychain_t *kc);
+fx_bytes_t fx_keychain_get_kek(fx_keychain_t *kc);
 
 fx_bytes_t fx_keychain_encode(fx_keychain_t *kc);
 fx_keychain_t *fx_keychain_decode(fx_bytes_t data);

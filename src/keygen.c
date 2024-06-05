@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base64.h"
 #include "fx/outlet.h"
 
 #define FX_MAX_K_TE_LEN 16
@@ -53,6 +54,9 @@ typedef enum {
   FX_FTAG_KEK = 0xC009,
   FX_FTAG_KTE = 0xC00A,
   FX_FTAG_PUBKEYC = 0xC00B,
+  FX_FTAG_EX_ENCID = 0xD000,
+  FX_FTAG_EX_TC = 0xD001,
+  FX_FTAG_EX_STC = 0xD002,
   FX_FTAG_MAX,
 } fx_field_tag;
 
@@ -72,211 +76,218 @@ static inline int fx_io_type_check(fx_io_type type) {
   return (type >= FX_DEFAULT_IO) && (type < FX_MAX_IO);
 }
 
-struct fx_ioctx {
-  fx_field_t sig_pubkey;
-
-  fx_outlet_t *outlet;
-};
-
-static int fx_ioctx_init(fx_ioctx_t *ctx, fx_bytes_t sig_pubkey) {
-  ctx->sig_pubkey =
-      fx_bytes_check(&sig_pubkey)
-          ? fx_bytes2field_clone(FX_FTAG_PUBKEY, sig_pubkey)
-          : fx_bytes2field(FX_FTAG_PUBKEY, fx_outlet_gen_ecckey(ctx->outlet));
-  return fx_field_check(&ctx->sig_pubkey);
+static inline int fx_ioctx_opt_check(fx_ioctx_opt opt) {
+  return (opt >= FX_IOPT_INITCON) && (opt < FX_IOPT_MAX);
 }
 
-fx_ioctx_t *fx_ioctx_new(fx_outlet_t *outlet, fx_bytes_t sig_pubkey) {
-  fx_ioctx_t *ctx = NULL;
-  if (!outlet || !fx_io_type_check(type))
-    goto end;
+struct fx_ioctx {
+  fx_outlet_t *outlet;
+  fx_field_t pubkey;
+};
 
-  ctx = (fx_ioctx_t *)calloc(1, sizeof(fx_ioctx_t));
-  if (ctx) {
-    ctx->type = type;
-    ctx->outlet = outlet;
-    if (fx_ioctx_init(ctx, sig_pubkey) != 1) {
-      fx_ioctx_free(ctx);
-      ctx = NULL;
+static int fx_ioctx_set_initcon(fx_ioctx_t *ctx, void *val) { return 0; }
+
+static int fx_ioctx_set_outlet(fx_ioctx_t *ctx, fx_outlet_t *outlet) {
+  int ret = 1;
+  if (ctx->outlet = outlet) {
+    if (!fx_field_check(&ctx->pubkey)) {
+      ctx->pubkey =
+          fx_bytes2field(FX_FTAG_PUBKEY, fx_outlet_gen_ecckey(outlet));
+      if (!fx_field_check(&ctx->pubkey)) {
+        ctx->outlet = NULL;
+        ret = 0;
+      }
     }
+  } else if (fx_field_check(&ctx->pubkey)) {
+    fx_field_free(&ctx->pubkey);
   }
+  return ret;
+}
 
-end:
-  return ctx;
+static int fx_ioctx_set_pubkey(fx_ioctx_t *ctx, fx_bytes_t *pubkey) {
+  fx_field_free(&ctx->pubkey);
+  if (pubkey)
+    ctx->pubkey = fx_bytes2field_clone(FX_FTAG_PUBKEY, *pubkey);
+  return 1;
+}
+
+fx_ioctx_t *fx_ioctx_new(void) {
+  return (fx_ioctx_t *)calloc(1, sizeof(fx_ioctx_t));
 }
 
 void fx_ioctx_free(fx_ioctx_t *ctx) {
   if (ctx) {
-    fx_field_free(&ctx->sig_pubkey);
+    fx_field_free(&ctx->pubkey);
     free(ctx);
   }
 }
 
-#define FX_BYTES_MAKE_TC_ARR(blist)                                            \
-  fx_bytes_make_tc_arr(blist, sizeof(blist) / sizeof((*blist)))
-
-static fx_bytes_t fx_bytes_make_tc_arr(const fx_bytes_t blist[], size_t n) {
-  size_t mlen = 0;
-  fx_bytes_t tc = fx_bytes_empty();
-
-  if (n) {
-    for (size_t i = 0; i < n; ++i)
-      mlen += (blist + i)->len;
-
-    if (mlen) {
-      tc = fx_bytes_calloc(mlen);
-      if (fx_bytes_check(&tc)) {
-        mlen = 0;
-        for (size_t i = 0; i < n; ++i) {
-          memcpy(tc.ptr + mlen, (blist + i)->ptr, (blist + i)->len);
-          mlen += (blist + i)->len;
-        }
-      }
+int fx_ioctx_set(fx_ioctx_t *ctx, fx_ioctx_opt opt, void *val) {
+  if (ctx)
+    switch (opt) {
+    case FX_IOPT_INITCON:
+      return fx_ioctx_set_initcon(ctx, val);
+    case FX_IOPT_OUTLET:
+      return fx_ioctx_set_outlet(ctx, (fx_outlet_t *)val);
+    case FX_IOPT_PUBKEY:
+      return fx_ioctx_set_pubkey(ctx, (fx_bytes_t *)val);
+    default:
+      break;
     }
-  }
-
-  return tc;
-}
-
-static fx_bytes_t fx_bytes_make_tc(size_t n, ...) {
-  va_list list;
-  fx_bytes_t blist, tc = fx_bytes_empty();
-
-  if (n) {
-    blist = fx_bytes_calloc(sizeof(fx_bytes_t) * n);
-    if (fx_bytes_check(&blist)) {
-      va_start(list, n);
-      for (size_t i = 0; i < n; ++i)
-        *(((fx_bytes_t *)blist.ptr) + i) = va_arg(list, fx_bytes_t);
-      va_end(list);
-
-      tc = fx_bytes_make_tc_arr((fx_bytes_t *)blist.ptr, n);
-      fx_bytes_free(&blist);
-    }
-  }
-
-  return tc;
+  return 0;
 }
 
 #pragma mark - fx_keychain_t
-struct fx_keychain {};
+struct fx_keychain {
+  fx_keychain_type type;
+  fx_field_t pubkey, stc;
+  fx_chunk_t *tc;
+};
 
-// #pragma mark - fx_auc_t
-// struct fx_auc {
-//   fx_field_t tc_s;
-//   fx_field_t sig_pubkey;
-// };
+static inline uint16_t fx_keychain_type2tag(fx_keychain_type type) {
+  switch (type) {
+  case FX_AUC_KEYCHAIN:
+    return FX_FTAG_AUCID;
+  case FX_ENC_KEYCHAIN:
+    return FX_FTAG_EX_ENCID;
+  case FX_BM_KEYCHAIN:
+    return FX_FTAG_BMID;
+  case FX_KMC_KEYCHAIN:
+    return FX_FTAG_KMCID;
+  default:
+    return FX_FTAG_UNKNOWN;
+  }
+}
 
-// // concat content: Sign(dev_id || prov_id || kmc_id || k_te, sig_privkey)
-// fx_auc_t *fx_auc_keygen(fx_ioctx_t *ctx, fx_bytes_t dev_id, fx_bytes_t
-// prov_id,
-//                         fx_bytes_t kmc_id) {
-//   fx_auc_t *auc = NULL;
-//   fx_bytes_t tc = fx_bytes_empty(), blist[] = {dev_id, prov_id, kmc_id};
-//   if (!ctx || !fx_bytes_check(&dev_id) || !fx_bytes_check(&prov_id) ||
-//       !fx_bytes_check(&kmc_id))
-//     goto end;
+static inline fx_keychain_type fx_keychain_tag2type(uint16_t tag) {
+  switch (tag) {
+  case FX_FTAG_AUCID:
+    return FX_AUC_KEYCHAIN;
+  case FX_FTAG_EX_ENCID:
+    return FX_ENC_KEYCHAIN;
+  case FX_FTAG_BMID:
+    return FX_BM_KEYCHAIN;
+  case FX_FTAG_KMCID:
+    return FX_KMC_KEYCHAIN;
+  default:
+    return FX_UNKNOWN_KEYCHAIN;
+  }
+}
 
-//   tc = FX_BYTES_MAKE_TC_ARR(blist);
-//   auc = (fx_auc_t *)calloc(1, sizeof(fx_auc_t));
-//   if (!auc)
-//     goto cleanup;
+static inline int fx_keychain_type_check(fx_keychain_type type) {
+  return (type > FX_UNKNOWN_KEYCHAIN) && (type < FX_MAX_KEYCHAIN);
+}
 
-//   auc->tc_s = fx_bytes2field(FX_FTAG_EX_SIGNED_TC,
-//                              fx_outlet_ecc_sign(ctx->outlet, tc, 1));
-//   if (fx_field_check(&auc->tc_s)) {
-//     auc->k_te = fx_bytes2field(
-//         FX_FTAG_KTE, fx_outlet_gen_random(ctx->outlet, FX_MAX_K_TE_LEN));
-//     if (fx_field_check(&auc->k_te)) {
-//       auc->sig_pubkey = fx_field_clone(ctx->sig_pubkey);
-//       if (fx_field_check(&auc->sig_pubkey))
-//         goto end;
-//     }
-//   }
+static inline fx_field_t fx_keychain_stc_make(fx_outlet_t *outlet,
+                                              fx_chunk_t *tc) {
+  fx_bytes_t tcb = fx_chunk_flat(tc);
+  fx_field_t tcf =
+      fx_bytes2field(FX_FTAG_EX_STC, fx_outlet_ecc_sign(outlet, tcb, 1));
+  fx_bytes_free(&tcb);
+  return tcf;
+}
 
-// cleanup:
-//   fx_bytes_free(&tc);
-//   if (auc) {
-//     fx_auc_free(auc);
-//     auc = NULL;
-//   }
+static int fx_keychain_assign_stc(fx_keychain_t *kc, fx_ioctx_t *ctx) {
+  int ret = 0;
+  fx_field_t stc;
+  if (ctx->outlet && kc->tc) {
+    stc = fx_keychain_stc_make(ctx->outlet, kc->tc);
+    if (fx_field_check(&stc)) {
+      fx_field_free(&kc->stc);
+      kc->stc = stc;
+      ret = 1;
+    }
+  }
+  return ret;
+}
 
-// end:
-//   return auc;
-// }
+static fx_keychain_t *fx_keychain_new(fx_ioctx_t *ctx, fx_keychain_type type) {
+  fx_keychain_t *kc = NULL;
+  if (ctx && fx_keychain_type_check(type)) {
+    kc = (fx_keychain_t *)calloc(1, sizeof(fx_keychain_t));
+    if (kc) {
+      kc->type = type;
+      if (type == FX_BM_KEYCHAIN) {
+        kc->pubkey = fx_field_empty(FX_FTAG_PUBKEY);
+      } else if (ctx->outlet && fx_field_check(&ctx->pubkey)) {
+        kc->pubkey = fx_field_clone(ctx->pubkey);
+      } else {
+        fx_keychain_destroy(kc);
+        kc = NULL;
+      }
+    }
+  }
+  return kc;
+}
 
-// void fx_auc_free(fx_auc_t *auc) {
-//   if (auc) {
-//     fx_field_free(&auc->tc_s);
-//     fx_field_free(&auc->k_te);
-//     fx_field_free(&auc->sig_pubkey);
-//     free(auc);
-//   }
-// }
+fx_keychain_t *fx_keychain_create_ex(fx_ioctx_t *ctx, fx_keychain_type type,
+                                     size_t n, const fx_bytes_t list[]) {
+  fx_keychain_t *kc = NULL;
+  fx_chunk_t *clist = NULL;
+  fx_bytes_t rtc = fx_bytes_empty(), ptc = fx_bytes_empty(),
+             k = fx_bytes_empty();
+  kc = fx_keychain_new(ctx, type);
+  if (!kc)
+    goto end;
 
-// #pragma mark - edpt_enc_t
-// struct fx_enc {
-//   fx_bytes_t sig_dev_id;
-//   fx_bytes_t sig_prov_id;
-//   fx_bytes_t sig_kmc_id;
-//   fx_bytes_t sig_auc_id;
-//   fx_bytes_t sig_pubkey;
-// };
+  clist = fx_chunk_pack_arr(n, list);
+  ptc = fx_chunk_flat(clist);
+  if (!fx_bytes_check(&ptc))
+    goto end;
 
-// fx_enc_t *fx_enc_new(void) { return (fx_enc_t *)malloc(sizeof(fx_enc_t)); }
+  // if (type == FX_AUC_KEYCHAIN) {
+  // if (!ctx->outlet)
+  // } else if (type == FX_KMC_KEYCHAIN) {
+  // }
 
-// void fx_enc_free(fx_enc_t *enc) {
-//   if (enc) {
-//     fx_bytes_free(&enc->sig_dev_id);
-//     fx_bytes_free(&enc->sig_prov_id);
-//     fx_bytes_free(&enc->sig_kmc_id);
-//     fx_bytes_free(&enc->sig_auc_id);
-//     fx_bytes_free(&enc->sig_pubkey);
-//     free(enc);
-//   }
-// }
+  // cleanup:
 
-// int fx_enc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
-//                   fx_bytes_t auc_id, fx_enc_t *enc) {
-//   return 0;
-// }
+end:
+  fx_bytes_free(&rtc);
+  fx_bytes_free(&ptc);
+  if (clist)
+    fx_chunk_free(clist);
 
-// #pragma mark - fx_bm_t
-// struct fx_bm {
-//   fx_bytes_t trusted_chain;
-// };
+  return kc;
+}
 
-// fx_bm_t *fx_bm_new(void) { return (fx_bm_t *)malloc(sizeof(fx_bm_t)); }
+fx_keychain_t *fx_keychain_create2(fx_ioctx_t *ctx, fx_keychain_type type,
+                                   size_t n, ...) {}
 
-// void fx_bm_free(fx_bm_t *bm) {
-//   if (bm) {
-//     fx_bytes_free(&bm->trusted_chain);
-//     free(bm);
-//   }
-// }
+void fx_keychain_destroy(fx_keychain_t *kc) {
+  if (kc) {
+    if (kc->tc)
+      fx_chunk_free(kc->tc);
+    if (fx_field_check(&kc->stc))
+      fx_field_free(&kc->stc);
+    if (fx_field_check(&kc->pubkey))
+      fx_field_free(&kc->pubkey);
+    free(kc);
+  }
+}
 
-// int fx_bm_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
-//                  fx_bm_t *bm) {
-//   return 0;
-// }
+fx_keychain_type fx_keychain_get_type(fx_keychain_t *kc) {
+  return kc && fx_keychain_type_check(kc->type) ? kc->type
+                                                : FX_UNKNOWN_KEYCHAIN;
+}
 
-// #pragma mark - fx_kmc_t
-// struct fx_kmc {
-//   fx_bytes_t sig_pubkey;
-//   fx_bytes_t kek;
-// };
+fx_bytes_t fx_keychain_get_kte(fx_keychain_t *kc) {
+  return (kc && kc->tc && kc->type == FX_AUC_KEYCHAIN)
+             ? fx_chunk_get(kc->tc, fx_chunk_get_size(kc->tc) - 1)
+             : fx_bytes_empty();
+}
 
-// fx_kmc_t *fx_kmc_new(void) { return (fx_kmc_t *)malloc(sizeof(fx_kmc_t)); }
+fx_bytes_t fx_keychain_get_kek(fx_keychain_t *kc) {
+  return (kc && kc->tc && kc->type == FX_KMC_KEYCHAIN)
+             ? fx_chunk_get(kc->tc, fx_chunk_get_size(kc->tc) - 1)
+             : fx_bytes_empty();
+}
 
-// void fx_kmc_free(fx_kmc_t *kmc) {
-//   if (kmc) {
-//     fx_bytes_free(&kmc->sig_pubkey);
-//     fx_bytes_free(&kmc->kek);
-//     free(kmc);
-//   }
-// }
+fx_bytes_t fx_keychain_encode(fx_keychain_t *kc) {}
 
-// int fx_kmc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t auc_id,
-//                   fx_kmc_t *kmc) {
-//   return 0;
-// }
+fx_keychain_t *fx_keychain_decode(fx_bytes_t data) {}
+
+int fx_ioctx_import_keychain(fx_ioctx_t *ctx, fx_keychain_t *kc) {}
+
+fx_keychain_t *fx_ioctx_export_keychain(fx_ioctx_t *ctx,
+                                        fx_keychain_type type) {}

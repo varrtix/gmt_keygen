@@ -28,53 +28,48 @@
 extern "C" {
 #endif
 
-#pragma mark - fx_ioctx_t
-typedef enum {
-  FX_DEFAULT_IO = 0,
-  FX_SK_IO,
-  FX_TF_IO,
-  FX_MAX_IO,
-} fx_io_type;
+#define fx_keychain_create(ctx, type, list)                                    \
+  fx_keychain_create_ex(ctx, type, sizeof(list) / sizeof(*(list)), list)
 
+#pragma mark - fx_ioctx_t
 typedef struct fx_ioctx fx_ioctx_t;
 
-fx_ioctx_t *fx_ioctx_new(fx_io_type type, fx_bytes_t sig_pubkey,
-                         fx_outlet_t *outlet);
+fx_ioctx_t *fx_ioctx_new(fx_outlet_t *outlet, fx_bytes_t sig_pubkey);
 void fx_ioctx_free(fx_ioctx_t *ctx);
 
-#pragma mark - fx_auc_t
-typedef struct fx_auc fx_auc_t;
+#pragma mark - fx_keychain_t
+typedef struct fx_keychain fx_keychain_t;
+typedef enum {
+  FX_AUC_KEYCHAIN = 0,
+  FX_ENC_KEYCHAIN,
+  FX_BM_KEYCHAIN,
+  FX_KMC_KEYCHAIN,
+  FX_MAX_KEYCHAIN,
+} fx_keychain_type;
 
-fx_auc_t *fx_auc_keygen(fx_ioctx_t *ctx, fx_bytes_t dev_id, fx_bytes_t prov_id,
-                        fx_bytes_t kmc_id);
-void fx_auc_free(fx_auc_t *auc);
+fx_keychain_t *fx_keychain_create_ex(fx_ioctx_t *ctx, fx_keychain_type type,
+                                     size_t n, const fx_bytes_t list[]);
+fx_keychain_t *fx_keychain_create2(fx_ioctx_t *ctx, fx_keychain_type type,
+                                   size_t n, ...);
+void fx_keychain_destroy(fx_keychain_t *kc);
 
-#pragma mark - fx_enc_t
-typedef struct fx_enc fx_enc_t;
+fx_keychain_type fx_keychain_get_type(fx_keychain_t *kc);
+fx_bytes_t fx_keychain_get_kte(fx_keychain_t *kc);
+fx_bytes_t fx_keychain_get_ktk(fx_keychain_t *kc);
 
-fx_enc_t *fx_enc_new(void);
-void fx_enc_free(fx_enc_t *enc);
+fx_bytes_t fx_keychain_encode(fx_keychain_t *kc);
+fx_keychain_t *fx_keychain_decode(fx_bytes_t data);
 
-int fx_enc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
-                  fx_bytes_t auc_id, fx_enc_t *enc);
+int fx_ioctx_import_keychain(fx_ioctx_t *ctx, fx_keychain_t *kc);
+fx_keychain_t *fx_ioctx_export_keychain(fx_ioctx_t *ctx, fx_keychain_type type);
 
-#pragma mark - fx_bm_t
-typedef struct fx_bm fx_bm_t;
-
-fx_bm_t *fx_bm_new(void);
-void fx_bm_free(fx_bm_t *bm);
-
-int fx_bm_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t kmc_id,
-                 fx_bm_t *bm);
-
-#pragma mark - fx_kmc_t
-typedef struct fx_kmc fx_kmc_t;
-
-fx_kmc_t *fx_kmc_new(void);
-void fx_kmc_free(fx_kmc_t *kmc);
-
-int fx_kmc_keygen(fx_bytes_t dev_id, fx_bytes_t prov_id, fx_bytes_t auc_id,
-                  fx_kmc_t *kmc);
+static inline int fx_ioctx_import(fx_ioctx_t *ctx, fx_bytes_t data) {
+  return fx_ioctx_import_keychain(ctx, fx_keychain_decode(data));
+}
+static inline fx_bytes_t fx_ioctx_export(fx_ioctx_t *ctx,
+                                         fx_keychain_type type) {
+  return fx_keychain_encode(fx_ioctx_export_keychain(ctx, type));
+}
 
 #ifdef __cplusplus
 }

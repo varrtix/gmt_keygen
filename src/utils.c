@@ -21,6 +21,7 @@
 
 #include "fx/utils.h"
 
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -82,5 +83,78 @@ void fx_field_free(fx_field_t *f) {
     free(f->v);
     f->v = NULL;
     f->t = f->l = 0;
+  }
+}
+
+#pragma mark - fx_chunk_t
+struct fx_chunk {
+  size_t n, flat_len;
+  fx_bytes_t nlist;
+  fx_bytes_t *blist;
+};
+
+static inline fx_chunk_t *fx_chunk_new(size_t n) {
+  fx_chunk_t *chunk = NULL;
+  if (n && (chunk = (fx_chunk_t *)calloc(1, sizeof(fx_chunk_t)))) {
+    chunk->n = n;
+    chunk->nlist = fx_bytes_calloc(n * sizeof(size_t));
+    chunk->blist = (fx_bytes_t *)calloc(n, sizeof(fx_bytes_t));
+    if (!chunk->blist || !fx_bytes_check(&chunk->nlist)) {
+      fx_chunk_free(chunk);
+      chunk = NULL;
+    }
+  }
+  return chunk;
+}
+
+static inline fx_chunk_t *fx_chunk_pack_ex(size_t n, void *list,
+                                           fx_bytes_t (*iter)(void *, size_t)) {
+  size_t mlen = 0;
+  fx_chunk_t *chunk = fx_chunk_new(n);
+  if (chunk) {
+    for (size_t i = 0; i < n; ++i)
+      mlen += *(((size_t *)chunk->nlist.ptr) + i) =
+          (*(chunk->blist + i) = fx_bytes_clone(iter(list, i))).len;
+
+    if (mlen) {
+      chunk->flat_len = mlen;
+    } else {
+      fx_chunk_free(chunk);
+      chunk = NULL;
+    }
+  }
+  return chunk;
+}
+
+static inline fx_bytes_t fx_chunk_pack_iter(void *list, size_t idx) {
+  return va_arg(*(va_list *)list, fx_bytes_t);
+}
+
+fx_chunk_t *fx_chunk_pack(size_t n, ...) {
+  va_list list;
+  fx_chunk_t *chunk;
+  va_start(list, n);
+  chunk = fx_chunk_pack_ex(n, &list, fx_chunk_pack_iter);
+  va_end(list);
+  return chunk;
+}
+static inline fx_bytes_t fx_chunk_pack_arr_iter(void *list, size_t idx) {
+  return *((fx_bytes_t *)list + idx);
+}
+
+fx_chunk_t *fx_chunk_pack_arr(size_t n, const fx_bytes_t list[]) {
+  return fx_chunk_pack_ex(n, (void *)list, fx_chunk_pack_arr_iter);
+}
+
+void fx_chunk_free(fx_chunk_t *chunk) {
+  if (chunk) {
+    if (chunk->blist) {
+      for (size_t i = 0; i < chunk->n; ++i)
+        fx_bytes_free(chunk->blist + i);
+
+      free(chunk->blist);
+    }
+    fx_bytes_free(&chunk->nlist);
+    free(chunk);
   }
 }

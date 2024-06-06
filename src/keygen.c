@@ -57,6 +57,7 @@ typedef enum {
   FX_FTAG_EX_ENCID = 0xD000,
   FX_FTAG_EX_TC = 0xD001,
   FX_FTAG_EX_STC = 0xD002,
+  FX_FTAG_EX_ETC = 0xD003,
   FX_FTAG_MAX,
 } fx_field_tag;
 
@@ -140,7 +141,7 @@ int fx_ioctx_set(fx_ioctx_t *ctx, fx_ioctx_opt opt, void *val) {
 #pragma mark - fx_keychain_t
 struct fx_keychain {
   fx_keychain_type type;
-  fx_field_t pubkey, stc;
+  fx_field_t pubkey, ctc;
   fx_chunk_t *tc;
 };
 
@@ -178,23 +179,52 @@ static inline int fx_keychain_type_check(fx_keychain_type type) {
   return (type > FX_UNKNOWN_KEYCHAIN) && (type < FX_MAX_KEYCHAIN);
 }
 
-static inline fx_field_t fx_keychain_stc_make(fx_outlet_t *outlet,
-                                              fx_chunk_t *tc) {
-  fx_bytes_t tcb = fx_chunk_flat(tc);
-  fx_field_t tcf =
-      fx_bytes2field(FX_FTAG_EX_STC, fx_outlet_ecc_sign(outlet, tcb, 1));
-  fx_bytes_free(&tcb);
-  return tcf;
+static inline int fx_keychain_k_make(fx_ioctx_t *ctx, fx_keychain_type type,
+                                     fx_bytes_t *k) {
+  int ret = FX_MAX_KEK_LEN;
+  if (ctx && k)
+    switch (type) {
+    case FX_AUC_KEYCHAIN:
+      ret = FX_MAX_K_TE_LEN;
+    case FX_KMC_KEYCHAIN:
+      *k = fx_outlet_gen_random(ctx->outlet, ret);
+      if (!fx_bytes_check(k))
+        ret = 0;
+      break;
+    default:
+      break;
+    }
+  return !!ret;
 }
 
-static int fx_keychain_assign_stc(fx_keychain_t *kc, fx_ioctx_t *ctx) {
+static inline fx_field_t fx_keychain_ctc_make(fx_keychain_t *kc,
+                                              fx_ioctx_t *ctx) {
+  fx_bytes_t btc = fx_bytes_empty();
+  fx_field_t ctc = fx_field_empty(FX_FTAG_UNKNOWN);
+  if (ctx->outlet && fx_keychain_type_check(kc->type)) {
+    btc = fx_chunk_flat(kc->tc);
+    if (fx_bytes_check(&btc)) {
+      ctc = (kc->type == FX_BM_KEYCHAIN)
+                ? fx_bytes2field(
+                      FX_FTAG_EX_ETC,
+                      fx_outlet_ecc_encrypt(ctx->outlet,
+                                            fx_field2bytes(kc->pubkey), btc))
+                : fx_bytes2field(FX_FTAG_EX_STC,
+                                 fx_outlet_ecc_sign(ctx->outlet, btc, 1));
+    }
+    fx_bytes_free(&btc);
+  }
+  return ctc;
+}
+
+static int fx_keychain_assign_ctc(fx_keychain_t *kc, fx_ioctx_t *ctx) {
   int ret = 0;
-  fx_field_t stc;
-  if (ctx->outlet && kc->tc) {
-    stc = fx_keychain_stc_make(ctx->outlet, kc->tc);
-    if (fx_field_check(&stc)) {
-      fx_field_free(&kc->stc);
-      kc->stc = stc;
+  fx_field_t ctc;
+  if (kc) {
+    ctc = fx_keychain_ctc_make(kc, ctx);
+    if (fx_field_check(&ctc)) {
+      fx_field_free(&kc->ctc);
+      kc->ctc = ctc;
       ret = 1;
     }
   }
@@ -206,10 +236,9 @@ static fx_keychain_t *fx_keychain_new(fx_ioctx_t *ctx, fx_keychain_type type) {
   if (ctx && fx_keychain_type_check(type)) {
     kc = (fx_keychain_t *)calloc(1, sizeof(fx_keychain_t));
     if (kc) {
-      kc->type = type;
-      if (type == FX_BM_KEYCHAIN) {
+      if ((kc->type = type) == FX_BM_KEYCHAIN) {
         kc->pubkey = fx_field_empty(FX_FTAG_PUBKEY);
-      } else if (ctx->outlet && fx_field_check(&ctx->pubkey)) {
+      } else if (fx_field_check(&ctx->pubkey)) {
         kc->pubkey = fx_field_clone(ctx->pubkey);
       } else {
         fx_keychain_destroy(kc);
@@ -220,46 +249,80 @@ static fx_keychain_t *fx_keychain_new(fx_ioctx_t *ctx, fx_keychain_type type) {
   return kc;
 }
 
-fx_keychain_t *fx_keychain_create_ex(fx_ioctx_t *ctx, fx_keychain_type type,
-                                     size_t n, const fx_bytes_t list[]) {
+static fx_keychain_t *
+fx_keychain_make(fx_ioctx_t *ctx, fx_keychain_type type, size_t n, void *list,
+                 void (*list_dump_fn)(fx_bytes_t *, void *list, size_t)) {
+  const size_t nsize = sizeof(fx_bytes_t), asize = n * nsize;
   fx_keychain_t *kc = NULL;
-  fx_chunk_t *clist = NULL;
-  fx_bytes_t rtc = fx_bytes_empty(), ptc = fx_bytes_empty(),
-             k = fx_bytes_empty();
+  fx_bytes_t *klist = NULL;
+  fx_bytes_t k = fx_bytes_empty();
+  if (!n || fx_keychain_k_make(ctx, type, &k) != 1)
+    goto end;
+
+  klist = (fx_bytes_t *)malloc(asize + nsize);
+  if (!klist)
+    goto end;
+
+  list_dump_fn(klist, list, n);
+  if (fx_bytes_check(&k)) {
+    memcpy(klist + asize, &k, nsize);
+    n++;
+  }
+
   kc = fx_keychain_new(ctx, type);
   if (!kc)
     goto end;
 
-  clist = fx_chunk_pack_arr(n, list);
-  ptc = fx_chunk_flat(clist);
-  if (!fx_bytes_check(&ptc))
-    goto end;
-
-  // if (type == FX_AUC_KEYCHAIN) {
-  // if (!ctx->outlet)
-  // } else if (type == FX_KMC_KEYCHAIN) {
-  // }
-
-  // cleanup:
+  kc->tc = fx_chunk_pack_arr(n, klist);
+  if (!kc->tc || fx_keychain_assign_ctc(kc, ctx) != 1) {
+    fx_keychain_destroy(kc);
+    kc = NULL;
+  }
 
 end:
-  fx_bytes_free(&rtc);
-  fx_bytes_free(&ptc);
-  if (clist)
-    fx_chunk_free(clist);
+  fx_bytes_free(&k);
+  if (klist)
+    free(klist);
 
   return kc;
 }
 
+static inline void fx_keychain_create_arr_list_dump(fx_bytes_t *klist,
+                                                    void *list, size_t n) {
+  memcpy(klist, list, n * sizeof(fx_bytes_t));
+}
+
+fx_keychain_t *fx_keychain_create_ex(fx_ioctx_t *ctx, fx_keychain_type type,
+                                     size_t n, const fx_bytes_t list[]) {
+  return fx_keychain_make(ctx, type, n, (void *)list,
+                          fx_keychain_create_arr_list_dump);
+}
+
+static inline void fx_keychain_create_list_dump(fx_bytes_t *klist, void *list,
+                                                size_t n) {
+  fx_bytes_t tmp = fx_bytes_empty();
+  for (size_t i = 0; i < n; ++i) {
+    tmp = va_arg(*(va_list *)list, fx_bytes_t);
+    memcpy(klist++, &tmp, sizeof(fx_bytes_t));
+  }
+}
+
 fx_keychain_t *fx_keychain_create2(fx_ioctx_t *ctx, fx_keychain_type type,
-                                   size_t n, ...) {}
+                                   size_t n, ...) {
+  fx_keychain_t *kc;
+  va_list list;
+  va_start(list, n);
+  kc = fx_keychain_make(ctx, type, n, &list, fx_keychain_create_list_dump);
+  va_end(list);
+  return kc;
+}
 
 void fx_keychain_destroy(fx_keychain_t *kc) {
   if (kc) {
     if (kc->tc)
       fx_chunk_free(kc->tc);
-    if (fx_field_check(&kc->stc))
-      fx_field_free(&kc->stc);
+    if (fx_field_check(&kc->ctc))
+      fx_field_free(&kc->ctc);
     if (fx_field_check(&kc->pubkey))
       fx_field_free(&kc->pubkey);
     free(kc);

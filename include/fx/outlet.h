@@ -101,6 +101,8 @@ fx_bytes_t fx_outlet_encrypt(fx_outlet_t *outlet, fx_cipher_type type,
                              fx_bytes_t key, fx_bytes_t iv, fx_bytes_t in);
 fx_bytes_t fx_outlet_decrypt(fx_outlet_t *outlet, fx_cipher_type type,
                              fx_bytes_t key, fx_bytes_t iv, fx_bytes_t in);
+fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
+                                 fx_bytes_t in);
 
 #ifdef __cplusplus
 }

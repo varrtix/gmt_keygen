@@ -841,7 +841,7 @@ static inline FX_OUTLET_GEN_BYTES_DECLARE(ecc_sign) {
 }
 
 fx_bytes_t fx_outlet_ecc_sign(fx_outlet_t *outlet, fx_bytes_t in, int preproc) {
-  fx_bytes_t procin = fx_bytes_new(in.ptr, in.len);
+  fx_bytes_t procin = fx_bytes_empty();
   if (preproc)
     procin = fx_outlet_sm3_digest(outlet, in);
 
@@ -974,4 +974,17 @@ fx_bytes_t fx_outlet_decrypt(fx_outlet_t *outlet, fx_cipher_type type,
   };
   return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, 0, 0, &ctx,
                              fx_outlet_gen_decrypt_impl);
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(ecc_encrypt) {
+  int ret = SKF_ExtECCEncrypt(*(fx_dev_t **)port,
+                              (ECCPUBLICKEYBLOB *)((fx_bytes_t *)obj)->ptr,
+                              in.ptr, in.len, (PECCCIPHERBLOB)out->ptr);
+  return ret == SAR_OK ? 1 : ret;
+}
+
+fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
+                                 fx_bytes_t in) {
+  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, sizeof(ECCCIPHERBLOB), 0,
+                             &pubkey, fx_outlet_gen_ecc_encrypt_impl);
 }

@@ -99,7 +99,7 @@ void test_fx_outlet(void **state) {
   fx_bytes_free(&port_name);
   fx_port_list_free(plist);
 
-  assert_ptr_not_equal(ioctx = fx_ioctx_new(fx_bytes_empty()), NULL);
+  assert_ptr_not_equal(ioctx = fx_ioctx_new(), NULL);
   // assert_ptr_not_equal(
   //     auc = fx_auc_keygen(
   //         ioctx, fx_bytes_new((uint8_t *)app_name, strlen(app_name)),

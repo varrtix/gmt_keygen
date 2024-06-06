@@ -977,14 +977,17 @@ fx_bytes_t fx_outlet_decrypt(fx_outlet_t *outlet, fx_cipher_type type,
 }
 
 static inline FX_OUTLET_GEN_BYTES_DECLARE(ecc_encrypt) {
-  int ret = SKF_ExtECCEncrypt(*(fx_dev_t **)port,
-                              (ECCPUBLICKEYBLOB *)((fx_bytes_t *)obj)->ptr,
-                              in.ptr, in.len, (PECCCIPHERBLOB)out->ptr);
+  int ret = SAR_UNKNOWNERR;
+  fx_bytes_t *pubkey = (fx_bytes_t *)obj;
+  if (fx_bytes_check(pubkey))
+    ret = SKF_ExtECCEncrypt(*(fx_dev_t **)port, (ECCPUBLICKEYBLOB *)pubkey->ptr,
+                            in.ptr, in.len, (PECCCIPHERBLOB)out->ptr);
   return ret == SAR_OK ? 1 : ret;
 }
 
 fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
                                  fx_bytes_t in) {
-  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, sizeof(ECCCIPHERBLOB), 0,
-                             &pubkey, fx_outlet_gen_ecc_encrypt_impl);
+  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in,
+                             in.len + sizeof(ECCCIPHERBLOB), 0, &pubkey,
+                             fx_outlet_gen_ecc_encrypt_impl);
 }

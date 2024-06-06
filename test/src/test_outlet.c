@@ -58,6 +58,7 @@ void test_fx_outlet(void **state) {
   fx_port_t *port;
   fx_outlet_t *outlet = fx_outlet_new("1234567812345678", "12345678");
   fx_ioctx_t *ioctx;
+  fx_keychain_t *kc;
 
   assert_ptr_not_equal(outlet, NULL);
 
@@ -100,6 +101,14 @@ void test_fx_outlet(void **state) {
   fx_port_list_free(plist);
 
   assert_ptr_not_equal(ioctx = fx_ioctx_new(), NULL);
+  assert_int_equal(fx_ioctx_set(ioctx, FX_IOPT_OUTLET, outlet), 1);
+  assert_ptr_not_equal(
+      fx_keychain_create2(ioctx, FX_BM_KEYCHAIN, 4, fx_bytes_new("devid", 5),
+                          fx_bytes_new("provid", 6), fx_bytes_new("kmcid", 5),
+                          fx_bytes_new("aucid", 5)),
+      NULL);
+  fx_keychain_destroy(kc);
+
   // assert_ptr_not_equal(
   //     auc = fx_auc_keygen(
   //         ioctx, fx_bytes_new((uint8_t *)app_name, strlen(app_name)),

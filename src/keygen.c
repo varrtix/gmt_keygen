@@ -236,9 +236,8 @@ static fx_keychain_t *fx_keychain_new(fx_ioctx_t *ctx, fx_keychain_type type) {
   if (ctx && fx_keychain_type_check(type)) {
     kc = (fx_keychain_t *)calloc(1, sizeof(fx_keychain_t));
     if (kc) {
-      if ((kc->type = type) == FX_BM_KEYCHAIN) {
-        kc->pubkey = fx_field_empty(FX_FTAG_PUBKEY);
-      } else if (fx_field_check(&ctx->pubkey)) {
+      kc->type = type;
+      if (fx_field_check(&ctx->pubkey)) {
         kc->pubkey = fx_field_clone(ctx->pubkey);
       } else {
         fx_keychain_destroy(kc);
@@ -346,7 +345,62 @@ fx_bytes_t fx_keychain_get_kek(fx_keychain_t *kc) {
              : fx_bytes_empty();
 }
 
-fx_bytes_t fx_keychain_encode(fx_keychain_t *kc) {}
+fx_bytes_t fx_keychain_encode(fx_keychain_t *kc) {
+  size_t size = 0;
+  fx_bytes_t data = fx_bytes_empty(), tcb = fx_bytes_empty(),
+             ctc = fx_bytes_empty(), key = fx_bytes_empty();
+  fx_field_t tmp = fx_field_empty(FX_FTAG_UNKNOWN);
+  if (!kc || !fx_field_check(&kc->ctc) || !fx_keychain_type_check(kc->type))
+    goto end;
+
+  if (kc->type == FX_BM_KEYCHAIN) {
+    tcb = fx_field2bytes_flat(kc->ctc);
+    size = Base64encode_len(tcb.len);
+    if (!size || !fx_bytes_check(&tcb))
+      goto end;
+
+    data = fx_bytes_calloc(size);
+    if (fx_bytes_check(&data) && Base64encode(data.ptr, tcb.ptr, tcb.len) <= 0)
+      fx_bytes_free(&data);
+
+  } else if (fx_field_check(&kc->pubkey)) {
+    tmp = fx_bytes2field(FX_FTAG_EX_TC, fx_chunk_flat(kc->tc));
+    if (!fx_field_check(&tmp))
+      goto end;
+
+    tcb = fx_field2bytes_flat(tmp);
+    ctc = fx_field2bytes_flat(kc->ctc);
+    key = fx_field2bytes_flat(kc->pubkey);
+    if (!fx_bytes_check(&tcb) || !fx_bytes_check(&ctc) || !fx_bytes_check(&key))
+      goto end;
+
+    fx_field_free(&tmp);
+    tmp = fx_field_calloc(fx_keychain_type2tag(kc->type),
+                          tcb.len + ctc.len + key.len);
+    if (!fx_field_check(&tmp))
+      goto end;
+
+    memcpy(tmp.v, tcb.ptr, tcb.len);
+    memcpy(tmp.v + tcb.len, ctc.ptr, ctc.len);
+    memcpy(tmp.v + tcb.len + ctc.len, key.ptr, key.len);
+    fx_bytes_free(&tcb);
+    tcb = fx_field2bytes_flat(tmp);
+    size = Base64encode_len(tcb.len);
+    if (!size || !fx_bytes_check(&tcb))
+      goto end;
+
+    data = fx_bytes_calloc(size);
+    if (fx_bytes_check(&data) && Base64encode(data.ptr, tcb.ptr, tcb.len) <= 0)
+      fx_bytes_free(&data);
+  }
+
+end:
+  fx_field_free(&tmp);
+  fx_bytes_free(&ctc);
+  fx_bytes_free(&tcb);
+
+  return data;
+}
 
 fx_keychain_t *fx_keychain_decode(fx_bytes_t data) {}
 

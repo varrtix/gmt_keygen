@@ -276,11 +276,18 @@ fx_chunk_t *fx_chunk_compact(fx_bytes_t b) {
             ptr += size + n;
             n = *(uint16_t *)ptr;
             if (n) {
-              memcpy(v->ptr, ptr += size, v->len = n);
+              *v = fx_bytes_calloc(n);
+              if (!fx_bytes_check(v)) {
+                fx_chunk_free(chunk);
+                chunk = NULL;
+                break;
+              }
+              memcpy(v->ptr, ptr += size, v->len);
               capacity += n;
             }
           }
-          chunk->flat_size = capacity;
+          if (chunk)
+            chunk->flat_size = capacity;
         }
       }
     }

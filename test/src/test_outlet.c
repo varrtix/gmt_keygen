@@ -113,6 +113,9 @@ void test_fx_outlet(void **state) {
   port_name = fx_keychain_encode(kc);
   assert_int_equal(fx_bytes_check(&port_name), 1);
   print_message("[encoded keychain][AUC] %s\n", port_name.ptr);
+  fx_keychain_destroy(kc);
+
+  assert_ptr_not_equal(kc = fx_keychain_decode(port_name), NULL);
   fx_bytes_free(&port_name);
   fx_keychain_destroy(kc);
 

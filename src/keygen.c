@@ -30,6 +30,9 @@
 
 #define FX_MAX_K_TE_LEN 16
 #define FX_MAX_KEK_LEN 16
+#define FX_TC_CHUNK_IDX 0
+#define FX_STC_CHUNK_IDX 1
+#define FX_PUBKEY_CHUNK_IDX 2
 
 #pragma mark - protocol definition
 typedef enum {
@@ -415,6 +418,7 @@ end:
 fx_keychain_t *fx_keychain_decode(fx_bytes_t data) {
   int bsize = 0;
   fx_keychain_t *kc = NULL;
+  fx_chunk_t *chunk = NULL;
   fx_bytes_t kcb = fx_bytes_empty();
   fx_field_t shell = fx_field_empty(FX_FTAG_UNKNOWN);
   if (!fx_bytes_check(&data) || Base64validate(data.ptr, 0) != 1)
@@ -446,10 +450,26 @@ fx_keychain_t *fx_keychain_decode(fx_bytes_t data) {
     kc->ctc = fx_field_clone(shell);
     kc->ctc.t = FX_FTAG_EX_ETC;
     goto end;
-  } else {
+  } else if (fx_keychain_type_check(kc->type)) {
+    chunk = fx_chunk_compact(kcb);
+    if (!chunk)
+      goto end;
+
+    kc->pubkey = fx_bytes2field_clone(
+        FX_FTAG_PUBKEY, fx_chunk_peek(chunk, FX_PUBKEY_CHUNK_IDX));
+    kc->ctc = fx_bytes2field_clone(FX_FTAG_EX_STC,
+                                   fx_chunk_peek(chunk, FX_STC_CHUNK_IDX));
+    kc->tc = fx_chunk_compact(fx_chunk_peek(chunk, FX_TC_CHUNK_IDX));
+    if (!kc->tc || !fx_field_check(&kc->ctc) || !fx_field_check(&kc->pubkey)) {
+      fx_keychain_destroy(kc);
+      kc = NULL;
+    }
   }
 
 end:
+  if (chunk)
+    fx_chunk_free(chunk);
+
   fx_field_free(&shell);
   fx_bytes_free(&kcb);
 

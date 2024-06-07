@@ -91,7 +91,7 @@ fx_bytes_t fx_field2bytes_flat(fx_field_t f) {
   size_t l = fx_field_capacity(&f), offset = sizeof(uint16_t);
   fx_bytes_t ff = fx_bytes_empty();
   uint8_t *p;
-  if (l) {
+  if (l && fx_field_check(&f)) {
     ff = fx_bytes_calloc(l);
     if (fx_bytes_check(&ff)) {
       p = ff.ptr;
@@ -103,6 +103,19 @@ fx_bytes_t fx_field2bytes_flat(fx_field_t f) {
     }
   }
   return ff;
+}
+
+fx_field_t fx_bytes2field_compact(fx_bytes_t b) {
+  fx_field_t f = fx_field_empty(0), *ff;
+  if (fx_bytes_check(&b)) {
+    ff = (fx_field_t *)b.ptr;
+    if (b.len == fx_field_capacity(ff)) {
+      f = fx_field_calloc(ff->t, ff->l);
+      if (fx_field_check(&f))
+        memcpy(f.v, b.ptr + FX_FIELD_PREFIX_SIZE, f.l * sizeof(uint8_t));
+    }
+  }
+  return f;
 }
 
 #pragma mark - fx_chunk_t

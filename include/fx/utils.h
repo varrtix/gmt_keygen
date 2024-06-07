@@ -79,6 +79,7 @@ static inline fx_bytes_t fx_field2bytes_clone(fx_field_t f) {
 }
 
 fx_bytes_t fx_field2bytes_flat(fx_field_t f);
+fx_field_t fx_bytes2field_compact(fx_bytes_t b);
 
 #pragma mark - fx_chunk_t
 typedef struct fx_chunk fx_chunk_t;

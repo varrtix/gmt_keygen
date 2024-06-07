@@ -233,15 +233,17 @@ static int fx_keychain_assign_ctc(fx_keychain_t *kc, fx_ioctx_t *ctx) {
 
 static fx_keychain_t *fx_keychain_new(fx_ioctx_t *ctx, fx_keychain_type type) {
   fx_keychain_t *kc = NULL;
-  if (ctx && fx_keychain_type_check(type)) {
+  if (fx_keychain_type_check(type)) {
     kc = (fx_keychain_t *)calloc(1, sizeof(fx_keychain_t));
     if (kc) {
       kc->type = type;
-      if (fx_field_check(&ctx->pubkey)) {
-        kc->pubkey = fx_field_clone(ctx->pubkey);
-      } else {
-        fx_keychain_destroy(kc);
-        kc = NULL;
+      if (ctx) {
+        if (fx_field_check(&ctx->pubkey)) {
+          kc->pubkey = fx_field_clone(ctx->pubkey);
+        } else {
+          fx_keychain_destroy(kc);
+          kc = NULL;
+        }
       }
     }
   }
@@ -255,8 +257,8 @@ fx_keychain_make(fx_ioctx_t *ctx, fx_keychain_type type, size_t n, void *list,
   fx_keychain_t *kc = NULL;
   fx_bytes_t *klist = NULL;
   fx_bytes_t k = fx_bytes_empty();
-  // if (!n || fx_keychain_k_make(ctx, type, &k) != 1)
-  // goto end;
+  if (!n || fx_keychain_k_make(ctx, type, &k) != 1)
+    goto end;
 
   klist = (fx_bytes_t *)malloc(asize + nsize);
   if (!klist)
@@ -264,7 +266,7 @@ fx_keychain_make(fx_ioctx_t *ctx, fx_keychain_type type, size_t n, void *list,
 
   list_dump_fn(klist, list, n);
   if (fx_bytes_check(&k)) {
-    memcpy(klist + asize, &k, nsize);
+    memcpy(klist + n, &k, nsize);
     n++;
   }
 
@@ -346,6 +348,7 @@ fx_bytes_t fx_keychain_get_kek(fx_keychain_t *kc) {
 }
 
 fx_bytes_t fx_keychain_encode(fx_keychain_t *kc) {
+  int bsize = 0;
   size_t size = 0;
   fx_bytes_t data = fx_bytes_empty(), tcb = fx_bytes_empty(),
              ctc = fx_bytes_empty(), key = fx_bytes_empty();
@@ -354,7 +357,10 @@ fx_bytes_t fx_keychain_encode(fx_keychain_t *kc) {
     goto end;
 
   if (kc->type == FX_BM_KEYCHAIN) {
-    tcb = fx_field2bytes_flat(kc->ctc);
+    tmp = kc->ctc;
+    tmp.t = fx_keychain_type2tag(kc->type);
+    tcb = fx_field2bytes_flat(tmp);
+    tmp = fx_field_empty(FX_FTAG_UNKNOWN);
     size = Base64encode_len(tcb.len);
     if (!size || !fx_bytes_check(&tcb))
       goto end;
@@ -390,19 +396,64 @@ fx_bytes_t fx_keychain_encode(fx_keychain_t *kc) {
       goto end;
 
     data = fx_bytes_calloc(size);
-    if (fx_bytes_check(&data) && Base64encode(data.ptr, tcb.ptr, tcb.len) <= 0)
-      fx_bytes_free(&data);
+    if (fx_bytes_check(&data)) {
+      bsize = Base64encode(data.ptr, tcb.ptr, tcb.len);
+      if (bsize <= 0)
+        fx_bytes_free(&data);
+    }
   }
 
 end:
   fx_field_free(&tmp);
+  fx_bytes_free(&key);
   fx_bytes_free(&ctc);
   fx_bytes_free(&tcb);
 
   return data;
 }
 
-fx_keychain_t *fx_keychain_decode(fx_bytes_t data) {}
+fx_keychain_t *fx_keychain_decode(fx_bytes_t data) {
+  int bsize = 0;
+  fx_keychain_t *kc = NULL;
+  fx_bytes_t kcb = fx_bytes_empty();
+  fx_field_t shell = fx_field_empty(FX_FTAG_UNKNOWN);
+  if (!fx_bytes_check(&data) || Base64validate(data.ptr, 0) != 1)
+    goto end;
+
+  kcb.len = Base64decode_len(data.ptr);
+  if (kcb.len <= 0)
+    goto end;
+
+  kcb = fx_bytes_calloc(kcb.len);
+  if (!fx_bytes_check(&kcb))
+    goto end;
+
+  bsize = Base64decode(kcb.ptr, data.ptr);
+  if (bsize <= kcb.len)
+    kcb.len = bsize;
+  else if (bsize <= 0)
+    goto end;
+
+  shell = fx_bytes2field_compact(kcb);
+  if (!fx_field_check(&shell))
+    goto end;
+
+  kc = fx_keychain_new(NULL, fx_keychain_tag2type(shell.t));
+  if (!kc)
+    goto end;
+
+  if (kc->type == FX_BM_KEYCHAIN) {
+    kc->ctc = fx_field_clone(shell);
+    kc->ctc.t = FX_FTAG_EX_ETC;
+    goto end;
+  }
+
+end:
+  fx_field_free(&shell);
+  fx_bytes_free(&kcb);
+
+  return kc;
+}
 
 int fx_ioctx_import_keychain(fx_ioctx_t *ctx, fx_keychain_t *kc) {}
 

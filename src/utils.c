@@ -90,16 +90,16 @@ void fx_field_free(fx_field_t *f) {
 fx_bytes_t fx_field2bytes_flat(fx_field_t f) {
   size_t l = fx_field_capacity(&f), offset = sizeof(uint16_t);
   fx_bytes_t ff = fx_bytes_empty();
-  uint8_t *p;
+  uint8_t *ptr;
   if (l && fx_field_check(&f)) {
     ff = fx_bytes_calloc(l);
     if (fx_bytes_check(&ff)) {
-      p = ff.ptr;
-      memcpy(p, &f.t, offset);
-      p += offset;
-      memcpy(p, &f.l, offset);
-      p += offset;
-      memcpy(p, f.v, sizeof(uint8_t) * f.l);
+      ptr = ff.ptr;
+      memcpy(ptr, &f.t, offset);
+      ptr += offset;
+      memcpy(ptr, &f.l, offset);
+      ptr += offset;
+      memcpy(ptr, f.v, sizeof(uint8_t) * f.l);
     }
   }
   return ff;
@@ -223,18 +223,67 @@ fx_bytes_t fx_chunk_get(fx_chunk_t *chunk, size_t idx) {
 }
 
 fx_bytes_t fx_chunk_flat(fx_chunk_t *chunk) {
-  size_t flat_size = fx_chunk_get_flat_size(chunk);
+  size_t flat_size = fx_chunk_get_flat_size(chunk),
+         size = fx_chunk_get_size(chunk),
+         capacity =
+             (flat_size && size ? (size + 1) * FX_FIELD_PREFIX_SIZE + flat_size
+                                : 0);
   fx_bytes_t flat_chunk =
-      flat_size ? fx_bytes_calloc(flat_size) : fx_bytes_empty();
+      capacity ? fx_bytes_calloc(capacity) : fx_bytes_empty();
+  uint8_t *ptr;
   if (fx_bytes_check(&flat_chunk)) {
     flat_size = 0;
+    size = sizeof(uint16_t);
+    ptr = flat_chunk.ptr + size;
+    *((uint16_t *)ptr) = flat_chunk.len - FX_FIELD_PREFIX_SIZE;
+    ptr += size;
     FX_CHUNK_FOR_EACH(chunk, i, v) {
-      memcpy(flat_chunk.ptr + flat_size, v->ptr, v->len);
-      flat_size += v->len;
+      ptr += size + flat_size;
+      *((uint16_t *)ptr) = v->len;
+      ptr += size;
+      memcpy(ptr, v->ptr, v->len);
+      flat_size = v->len;
     }
-
-    if (flat_size != flat_chunk.len)
-      fx_bytes_free(&flat_chunk);
   }
   return flat_chunk;
+}
+
+fx_chunk_t *fx_chunk_compact(fx_bytes_t b) {
+  size_t size, capacity, n = 0;
+  fx_chunk_t *chunk = NULL;
+  uint8_t *ptr;
+  if (fx_bytes_check(&b)) {
+    size = sizeof(uint16_t);
+    capacity = *(uint16_t *)(ptr = b.ptr + size);
+    if (capacity == b.len - FX_FIELD_PREFIX_SIZE) {
+      ptr += size;
+      for (size_t i = 0, j = 0; i < capacity; i += j) {
+        ptr += size;
+        j = *(uint16_t *)ptr;
+        if (j) {
+          ptr += j += size;
+          j += size;
+          n++;
+        }
+      }
+
+      if (n) {
+        chunk = fx_chunk_new(n);
+        if (chunk) {
+          n = capacity = 0;
+          ptr = b.ptr + size * 2;
+          FX_CHUNK_FOR_EACH(chunk, i, v) {
+            ptr += size + n;
+            n = *(uint16_t *)ptr;
+            if (n) {
+              memcpy(v->ptr, ptr += size, v->len = n);
+              capacity += n;
+            }
+          }
+          chunk->flat_size = capacity;
+        }
+      }
+    }
+  }
+  return chunk;
 }

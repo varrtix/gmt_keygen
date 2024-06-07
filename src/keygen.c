@@ -446,6 +446,7 @@ fx_keychain_t *fx_keychain_decode(fx_bytes_t data) {
     kc->ctc = fx_field_clone(shell);
     kc->ctc.t = FX_FTAG_EX_ETC;
     goto end;
+  } else {
   }
 
 end:

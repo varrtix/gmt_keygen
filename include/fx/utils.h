@@ -94,6 +94,7 @@ fx_bytes_t fx_chunk_peek(fx_chunk_t *chunk, size_t idx);
 fx_bytes_t fx_chunk_get(fx_chunk_t *chunk, size_t idx);
 
 fx_bytes_t fx_chunk_flat(fx_chunk_t *chunk);
+fx_chunk_t *fx_chunk_compact(fx_bytes_t b);
 
 #ifdef __cplusplus
 }

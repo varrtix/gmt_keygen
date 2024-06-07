@@ -65,7 +65,8 @@ fx_field_t fx_field_new(uint16_t t, uint16_t l, uint8_t *v) {
 fx_field_t fx_field_calloc(uint16_t t, uint16_t l) {
   fx_field_t f = fx_field_empty(t);
   if (l) {
-    f = fx_field_new(t, l, calloc(l, sizeof(uint8_t)));
+    f.l = l;
+    f = fx_field_new(t, l, calloc(sizeof(uint8_t) * l, 1));
     f.l = f.v ? l : 0;
   }
   return f;
@@ -87,19 +88,18 @@ void fx_field_free(fx_field_t *f) {
 }
 
 fx_bytes_t fx_field2bytes_flat(fx_field_t f) {
-  static const size_t offset = sizeof(uint16_t);
-  size_t l = fx_field_capacity(&f);
+  size_t l = fx_field_capacity(&f), offset = sizeof(uint16_t);
   fx_bytes_t ff = fx_bytes_empty();
   uint8_t *p;
   if (l) {
     ff = fx_bytes_calloc(l);
     if (fx_bytes_check(&ff)) {
       p = ff.ptr;
-      memcpy(p, &f, offset);
+      memcpy(p, &f.t, offset);
       p += offset;
-      memcpy(p, &f + offset, offset);
+      memcpy(p, &f.l, offset);
       p += offset;
-      memcpy(p, f.v, sizeof(uint8_t) * l);
+      memcpy(p, f.v, sizeof(uint8_t) * f.l);
     }
   }
   return ff;

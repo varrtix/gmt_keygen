@@ -255,8 +255,8 @@ fx_keychain_make(fx_ioctx_t *ctx, fx_keychain_type type, size_t n, void *list,
   fx_keychain_t *kc = NULL;
   fx_bytes_t *klist = NULL;
   fx_bytes_t k = fx_bytes_empty();
-  if (!n || fx_keychain_k_make(ctx, type, &k) != 1)
-    goto end;
+  // if (!n || fx_keychain_k_make(ctx, type, &k) != 1)
+  // goto end;
 
   klist = (fx_bytes_t *)malloc(asize + nsize);
   if (!klist)

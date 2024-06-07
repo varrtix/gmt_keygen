@@ -644,19 +644,18 @@ end:
 
 static int fx_outlet_unlock_conta(fx_outlet_t *outlet) {
   int ret = 0;
+  size_t retries = 0;
   fx_app_t **papp = (fx_app_t **)fx_port_export(outlet->papp);
 
   if (!papp || !fx_bytes_check(&outlet->pin))
     goto end;
 
-  ret = SKF_VerifyPIN(*papp, USER_TYPE, outlet->pin.ptr,
-                      (ULONG *)&outlet->pin.len);
+  ret = SKF_VerifyPIN(*papp, USER_TYPE, outlet->pin.ptr, (ULONG *)&retries);
   if (ret == SAR_OK) {
     ret = 1;
     goto end;
   } else {
-    ret = SKF_VerifyPIN(*papp, ADMIN_TYPE, outlet->pin.ptr,
-                        (ULONG *)&outlet->pin.len);
+    ret = SKF_VerifyPIN(*papp, ADMIN_TYPE, outlet->pin.ptr, (ULONG *)&retries);
     if (ret == SAR_OK)
       ret = 1;
   }
@@ -675,9 +674,9 @@ fx_outlet_t *fx_outlet_new(const char *authkey, const char *pin) {
     goto end;
 
   outlet->auth = fx_bytes_empty();
-  outlet->pin = fx_bytes_clone(fx_bytes_new((uint8_t *)pin, strlen(pin)));
+  outlet->pin = fx_bytes_clone(fx_bytes_new((uint8_t *)pin, strlen(pin) + 1));
   outlet->authkey =
-      fx_bytes_clone(fx_bytes_new((uint8_t *)authkey, strlen(authkey)));
+      fx_bytes_clone(fx_bytes_new((uint8_t *)authkey, strlen(authkey) + 1));
   if (!fx_bytes_check(&outlet->pin) || !fx_bytes_check(&outlet->authkey)) {
     fx_outlet_free(outlet);
     outlet = NULL;

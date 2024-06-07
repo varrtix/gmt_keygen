@@ -56,8 +56,7 @@ fx_field_t fx_field_calloc(uint16_t t, uint16_t l);
 fx_field_t fx_field_clone(fx_field_t f);
 void fx_field_free(fx_field_t *f);
 
-static const size_t FX_FIELD_PREFIX_SIZE =
-    sizeof(fx_field_t) - sizeof(uint8_t *);
+static const size_t FX_FIELD_PREFIX_SIZE = sizeof(uint16_t) + sizeof(uint16_t);
 
 static inline fx_field_t fx_field_empty(uint16_t t) {
   return fx_field_new(t, 0, NULL);

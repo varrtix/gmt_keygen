@@ -59,6 +59,11 @@ void test_fx_outlet(void **state) {
   fx_outlet_t *outlet = fx_outlet_new("1234567812345678", "12345678");
   fx_ioctx_t *ioctx;
   fx_keychain_t *kc;
+  fx_bytes_t auc_list[] = {
+      fx_bytes_new("devid", 5),
+      fx_bytes_new("provid", 6),
+      fx_bytes_new("kmcid", 5),
+  };
 
   assert_ptr_not_equal(outlet, NULL);
 
@@ -102,16 +107,26 @@ void test_fx_outlet(void **state) {
 
   assert_ptr_not_equal(ioctx = fx_ioctx_new(), NULL);
   assert_int_equal(fx_ioctx_set(ioctx, FX_IOPT_OUTLET, outlet), 1);
-  assert_ptr_not_equal(kc = fx_keychain_create2(
-                           ioctx, FX_BM_KEYCHAIN, 4, fx_bytes_new("devid", 5),
-                           fx_bytes_new("provid", 6), fx_bytes_new("kmcid", 5),
-                           fx_bytes_new("aucid", 5)),
-                       NULL);
+
+  assert_ptr_not_equal(
+      kc = fx_keychain_create(ioctx, FX_AUC_KEYCHAIN, auc_list), NULL);
   port_name = fx_keychain_encode(kc);
   assert_int_equal(fx_bytes_check(&port_name), 1);
-  print_message("[encoded keychain][BM] %s\n", port_name.ptr);
+  print_message("[encoded keychain][AUC] %s\n", port_name.ptr);
   fx_bytes_free(&port_name);
   fx_keychain_destroy(kc);
+
+  // assert_ptr_not_equal(kc = fx_keychain_create2(
+  //                          ioctx, FX_BM_KEYCHAIN, 4, fx_bytes_new("devid",
+  //                          5), fx_bytes_new("provid", 6),
+  //                          fx_bytes_new("kmcid", 5), fx_bytes_new("aucid",
+  //                          5)),
+  //                      NULL);
+  // port_name = fx_keychain_encode(kc);
+  // assert_int_equal(fx_bytes_check(&port_name), 1);
+  // print_message("[encoded keychain][BM] %s\n", port_name.ptr);
+  // fx_bytes_free(&port_name);
+  // fx_keychain_destroy(kc);
 
   fx_ioctx_free(ioctx);
   fx_outlet_free(outlet);

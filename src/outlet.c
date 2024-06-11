@@ -1040,6 +1040,116 @@ fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
 }
 
 #pragma mark - file
-fx_bytes_t fx_outlet_fsread(fx_outlet_t *outlet, size_t fsize, size_t offset) {}
+int fx_outlet_create_file(fx_outlet_t *outlet, fx_bytes_t filename) {
+  int ret = 0;
+  fx_port_t *port;
 
-int fx_outlet_fswrite(fx_outlet_t *outlet, fx_bytes_t in, size_t offset) {}
+  if (!outlet || fx_outlet_file_exist(outlet, filename))
+    goto end;
+
+  if (outlet->pfile &&
+      strncmp(outlet->pfile->name.ptr, filename.ptr, filename.len) == 0) {
+    if (outlet->pfile->add)
+      ret = outlet->pfile->add(outlet->pfile);
+  } else {
+    port = fx_port_new(FX_FILE_PORT, filename, FX_PF_OPEN | FX_PF_CREAT, outlet,
+                       fx_port_export(outlet->papp));
+    if (port)
+      ret = fx_outlet_set_port(outlet, FX_FILE_PORT, port);
+  }
+
+end:
+  return ret;
+}
+
+int fx_outlet_delete_file(fx_outlet_t *outlet, fx_bytes_t filename) {
+  int ret = 0;
+  fx_port_t *port;
+
+  if (!outlet) {
+    goto end;
+  } else if (!fx_outlet_file_exist(outlet, filename)) {
+    ret = 1;
+    goto end;
+  }
+
+  if (outlet->pfile &&
+      strncmp(outlet->pfile->name.ptr, filename.ptr, filename.len) == 0) {
+    if (outlet->pfile->remove)
+      ret = outlet->pfile->remove(outlet->pfile);
+  } else {
+    port = fx_port_new(FX_FILE_PORT, filename, FX_PF_OPEN, outlet,
+                       fx_port_export(outlet->papp));
+    if (port) {
+      if (!port->remove || (ret = port->remove(port)) != 1) {
+        fx_port_free(port);
+        port = NULL;
+        goto end;
+      }
+
+      ret = fx_outlet_set_port(outlet, FX_FILE_PORT, port);
+    }
+  }
+
+end:
+  return ret;
+}
+
+int fx_outlet_file_exist(fx_outlet_t *outlet, fx_bytes_t filename) {
+  int ret = 0;
+  fx_app_t **papp = NULL;
+  FILEATTRIBUTE fileinfo = {0};
+  if (!outlet || !fx_bytes_check(&filename) || filename.len > MAX_FILE_NAME_LEN)
+    goto end;
+
+  papp = (fx_app_t **)fx_outlet_export(outlet, FX_FILE_PORT);
+  if (!papp)
+    goto end;
+
+  ret = SKF_GetFileInfo(*papp, filename.ptr, &fileinfo);
+  if (ret == SAR_OK)
+    ret = 1;
+  else if (ret == SAR_FILE_NOT_EXIST)
+    ret = 0;
+
+end:
+  return ret;
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(fsread) {
+  int ret = 0;
+  size_t *offset = (size_t *)obj;
+  ULONG rsize = 0;
+  if (offset && outlet->pfile) {
+    ret = SKF_ReadFile(*(fx_app_t **)port, outlet->pfile->name.ptr, *offset,
+                       out->len, out->ptr, &rsize);
+    if (ret == SAR_OK && rsize <= out->len)
+      ret = 1;
+  }
+  return ret;
+}
+
+fx_bytes_t fx_outlet_fsread(fx_outlet_t *outlet, size_t fsize, size_t offset) {
+  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, fx_bytes_empty(), fsize, 0,
+                             &offset, fx_outlet_gen_fsread_impl);
+}
+
+static inline FX_OUTLET_GEN_BYTES_DECLARE(fswrite) {
+  int ret = 0;
+  size_t *offset = (size_t *)obj;
+  if (offset && outlet->pfile) {
+    ret = SKF_WriteFile(*(fx_app_t **)port, outlet->pfile->name.ptr, *offset,
+                        in.ptr, in.len);
+    if (ret == SAR_OK) {
+      out->len = in.len;
+      ret = 1;
+    }
+  }
+  return ret;
+}
+
+int fx_outlet_fswrite(fx_outlet_t *outlet, fx_bytes_t in, size_t offset) {
+  fx_bytes_t out = fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, 0, 0, &offset,
+                                       fx_outlet_gen_fswrite_impl);
+  return out.len == in.len;
+}

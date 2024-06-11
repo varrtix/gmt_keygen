@@ -106,6 +106,10 @@ fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
                                  fx_bytes_t in);
 
 #pragma mark - file
+int fx_outlet_create_file(fx_outlet_t *outlet, fx_bytes_t filename);
+int fx_outlet_delete_file(fx_outlet_t *outlet, fx_bytes_t filename);
+int fx_outlet_file_exist(fx_outlet_t *outlet, fx_bytes_t filename);
+
 fx_bytes_t fx_outlet_fsread(fx_outlet_t *outlet, size_t fsize, size_t offset);
 int fx_outlet_fswrite(fx_outlet_t *outlet, fx_bytes_t in, size_t offset);
 

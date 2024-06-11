@@ -476,7 +476,6 @@ end:
   return kc;
 }
 
-int fx_ioctx_import_keychain(fx_ioctx_t *ctx, fx_keychain_t *kc) {}
+int fx_ioctx_import(fx_ioctx_t *ctx, fx_bytes_t data) {}
 
-fx_keychain_t *fx_ioctx_export_keychain(fx_ioctx_t *ctx,
-                                        fx_keychain_type type) {}
+fx_bytes_t fx_ioctx_export(fx_ioctx_t *ctx, fx_keychain_type type) {}

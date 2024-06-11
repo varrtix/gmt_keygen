@@ -22,15 +22,14 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
 project(fx_keygen LANGUAGES C)
 
-# set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-
 set(SOURCE_DIR ${PROJECT_SOURCE_DIR}/src)
 set(INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
 set(INTERNAL_INCLUDE_DIR ${SOURCE_DIR}/include)
 set(LIB_DIR ${PROJECT_SOURCE_DIR}/lib)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(BUILD_TYPE debug)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
 else()
     set(BUILD_TYPE release)
 endif()

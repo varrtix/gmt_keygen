@@ -68,15 +68,15 @@ fx_bytes_t fx_keychain_get_kek(fx_keychain_t *kc);
 fx_bytes_t fx_keychain_encode(fx_keychain_t *kc);
 fx_keychain_t *fx_keychain_decode(fx_bytes_t data);
 
-int fx_ioctx_import_keychain(fx_ioctx_t *ctx, fx_keychain_t *kc);
-fx_keychain_t *fx_ioctx_export_keychain(fx_ioctx_t *ctx, fx_keychain_type type);
+int fx_ioctx_import(fx_ioctx_t *ctx, fx_bytes_t data);
+fx_bytes_t fx_ioctx_export(fx_ioctx_t *ctx, fx_keychain_type type);
 
-static inline int fx_ioctx_import(fx_ioctx_t *ctx, fx_bytes_t data) {
-  return fx_ioctx_import_keychain(ctx, fx_keychain_decode(data));
+static inline int fx_ioctx_import_keychain(fx_ioctx_t *ctx, fx_keychain_t *kc) {
+  return fx_ioctx_import(ctx, fx_keychain_encode(kc));
 }
-static inline fx_bytes_t fx_ioctx_export(fx_ioctx_t *ctx,
-                                         fx_keychain_type type) {
-  return fx_keychain_encode(fx_ioctx_export_keychain(ctx, type));
+static inline fx_keychain_t *fx_ioctx_export_keychain(fx_ioctx_t *ctx,
+                                                      fx_keychain_type type) {
+  return fx_keychain_decode(fx_ioctx_export(ctx, type));
 }
 
 #ifdef __cplusplus

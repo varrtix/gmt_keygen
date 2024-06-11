@@ -109,6 +109,7 @@ FX_PORT_OP_DECLARE(dev_open);
 FX_PORT_OP_DECLARE(dev_close);
 FX_PORT_OP_DECLARE_ALL(app);
 FX_PORT_OP_DECLARE_ALL(conta);
+FX_PORT_OP_DECLARE_ALL(file);
 
 static inline int fx_port_type_check(fx_port_type type) {
   return (type > FX_DEFAULT_PORT) && (type < FX_MAX_PORT);
@@ -142,6 +143,10 @@ static inline void fx_port_op_bind(fx_port_t *port) {
 
   case FX_CONTA_PORT:
     FX_PORT_OP_BIND_ALL(port, conta);
+    break;
+
+  case FX_FILE_PORT:
+    FX_PORT_OP_BIND_ALL(port, file);
     break;
 
   default:
@@ -202,7 +207,8 @@ void fx_port_free(fx_port_t *port) {
     if (port->raw) {
       fx_port_close(port);
 
-      if ((port->flags & FX_PF_CREAT) && port->remove) {
+      if (port->type != FX_FILE_PORT && (port->flags & FX_PF_CREAT) &&
+          port->remove) {
         port->remove(port);
         port->flags &= ~FX_PF_CREAT;
       }
@@ -400,11 +406,46 @@ struct fx_port_list {
   fx_port_list_iter_fn iter;
 };
 
+#pragma mark - fx_port_file impl.
+FX_PORT_OP_DECLARE(file_add) {
+  int ret = 0;
+  fx_app_t **papp = (fx_app_t **)fx_port_validate_oport(port, FX_APP_PORT);
+  if (!papp || port->name.len > MAX_FILE_NAME_LEN)
+    goto end;
+
+  ret = SKF_CreateFile(*papp, port->name.ptr, port->name.len,
+                       SECURE_EVERYONE_ACCOUNT, SECURE_EVERYONE_ACCOUNT);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(file_remove) {
+  int ret = 0;
+  fx_app_t **papp = (fx_app_t **)fx_port_validate_oport(port, FX_APP_PORT);
+  if (!papp)
+    goto end;
+
+  ret = SKF_DeleteFile(*papp, port->name.ptr);
+  if (ret == SAR_OK)
+    ret = 1;
+
+end:
+  return ret;
+}
+
+FX_PORT_OP_DECLARE(file_open) { return 1; }
+
+FX_PORT_OP_DECLARE(file_close) { return 1; }
+
 static inline FX_PLIST_ITER_IMPL(dev, SKF_EnumDev, true);
 static inline FX_PLIST_ITER_IMPL(app, SKF_EnumApplication,
                                  *(fx_dev_t *)plist->obj);
 static inline FX_PLIST_ITER_IMPL(conta, SKF_EnumContainer,
                                  *(fx_app_t *)plist->obj);
+static inline FX_PLIST_ITER_IMPL(file, SKF_EnumFiles, *(fx_app_t *)plist->obj);
 
 static inline fx_port_list_iter_fn fx_port_list_iter_bind(fx_port_type type) {
   switch (type) {
@@ -414,6 +455,8 @@ static inline fx_port_list_iter_fn fx_port_list_iter_bind(fx_port_type type) {
     return fx_port_list_app_iter;
   case FX_CONTA_PORT:
     return fx_port_list_conta_iter;
+  case FX_FILE_PORT:
+    return fx_port_list_file_iter;
   default:
     return (fx_port_list_iter_fn)NULL;
   }
@@ -573,7 +616,7 @@ struct fx_outlet {
   fx_bytes_t authkey;
   fx_bytes_t auth;
 
-  fx_port_t *pdev, *papp, *pconta;
+  fx_port_t *pdev, *papp, *pconta, *pfile;
 };
 
 static int fx_outlet_gen_auth(fx_outlet_t *outlet, fx_dev_t **pdev) {
@@ -690,6 +733,7 @@ void fx_outlet_free(fx_outlet_t *outlet) {
   if (outlet) {
     fx_outlet_validate_port(outlet, FX_APP_PORT);
     fx_port_free(outlet->pconta);
+    fx_port_free(outlet->pfile);
 
     fx_outlet_validate_port(outlet, FX_DEV_PORT);
     fx_port_free(outlet->papp);
@@ -748,6 +792,10 @@ int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
 
     case FX_CONTA_PORT:
       outlet->pconta = port;
+      break;
+
+    case FX_FILE_PORT:
+      outlet->pfile = port;
       break;
 
     default:
@@ -990,3 +1038,8 @@ fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
                              in.len + sizeof(ECCCIPHERBLOB), 0, &pubkey,
                              fx_outlet_gen_ecc_encrypt_impl);
 }
+
+#pragma mark - file
+fx_bytes_t fx_outlet_fsread(fx_outlet_t *outlet, size_t fsize, size_t offset) {}
+
+int fx_outlet_fswrite(fx_outlet_t *outlet, fx_bytes_t in, size_t offset) {}

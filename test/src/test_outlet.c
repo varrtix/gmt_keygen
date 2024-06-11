@@ -91,6 +91,9 @@ void test_fx_outlet(void **state) {
   fx_bytes_free(&port_name);
   fx_port_list_free(plist);
 
+  plist = fx_port_list_new(FX_FILE_PORT, fx_port_export(port));
+  fx_port_list_free(plist);
+
   plist = fx_port_list_new(FX_CONTA_PORT, fx_port_export(port));
   port_name = plist ? test_fx_port_list(plist, 0)
                     : fx_bytes_new((uint8_t *)conta_name, strlen(conta_name));

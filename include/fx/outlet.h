@@ -42,6 +42,7 @@ typedef enum {
   FX_DEV_PORT,
   FX_APP_PORT,
   FX_CONTA_PORT,
+  FX_FILE_PORT,
   FX_MAX_PORT,
 } fx_port_type;
 
@@ -103,6 +104,10 @@ fx_bytes_t fx_outlet_decrypt(fx_outlet_t *outlet, fx_cipher_type type,
                              fx_bytes_t key, fx_bytes_t iv, fx_bytes_t in);
 fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
                                  fx_bytes_t in);
+
+#pragma mark - file
+fx_bytes_t fx_outlet_fsread(fx_outlet_t *outlet, size_t fsize, size_t offset);
+int fx_outlet_fswrite(fx_outlet_t *outlet, fx_bytes_t in, size_t offset);
 
 #ifdef __cplusplus
 }

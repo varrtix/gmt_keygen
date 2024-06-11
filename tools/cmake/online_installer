@@ -1,0 +1,53 @@
+#!/bin/bash
+# cmake online installer
+
+if [ $(uname) != "Linux" ]; then
+  echo "Your system kernel is not linux"
+  exit 1
+fi
+
+BIN_NAME=cmake
+CMAKE_VER=$(curl "https://cmake.org/files/LatestRelease/cmake-latest-files-v1.json" | grep -o '"string": "[^"]*' | grep -o '[^"]*$')
+CMAKE_NAME=cmake-${CMAKE_VER}-linux-$(arch)
+CMAKE_SCRIPT_NAME=${CMAKE_NAME}.sh
+TARGET_DIR=/opt
+LINK_BIN_DIR=/usr/local/bin
+
+LINK_BIN=${LINK_BIN_DIR}/${BIN_NAME}
+
+CMAKE_DIR=${TARGET_DIR}/${CMAKE_NAME}
+
+TARGET_BIN_DIR=${CMAKE_DIR}/bin
+TARGET_BIN=${TARGET_BIN_DIR}/${BIN_NAME}
+
+if cat /proc/version | grep -Eqi "debian|ubuntu"; then
+  SYS_PKG="apt"
+elif cat /proc/version | grep -Eqi "centos|red hat|redhat|kylin"; then
+  SYS_PKG="yum"
+else
+  echo "Unknown system distribution"
+  exit 1
+fi
+
+if ${SYS_PKG} info ${BIN_NAME} | grep -Eqi "installed"; then
+  yes | sudo ${SYS_PKG} remove ${BIN_NAME}
+  yes | sudo ${SYS_PKG} autoremove
+fi
+
+! test -e ${CMAKE_SCRIPT_NAME} && wget https://cmake.org/files/LatestRelease/${CMAKE_SCRIPT_NAME} --no-check-certificate 
+! test -x ${CMAKE_SCRIPT_NAME} && chmod u+x ${CMAKE_SCRIPT_NAME}
+yes | ./${CMAKE_SCRIPT_NAME} | cat
+
+sudo rm -rf ${CMAKE_DIR}
+sudo rm -rf ${TARGET_DIR}/cmake*-linux-$(arch)
+
+if [ -L ${LINK_BIN} ]; then
+  sudo rm -rf ${LINK_BIN}
+fi
+
+sudo mv ${CMAKE_NAME} ${TARGET_DIR}/
+sudo rm -rf ${CMAKE_SCRIPT_NAME}
+
+sudo ln -s ${TARGET_BIN} ${LINK_BIN}
+
+${BIN_NAME} --version

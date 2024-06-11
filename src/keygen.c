@@ -22,11 +22,13 @@
 #include "fx/keygen.h"
 
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "base64.h"
 #include "fx/outlet.h"
+#include "skfapi.h"
 
 #define FX_MAX_K_TE_LEN 16
 #define FX_MAX_KEK_LEN 16
@@ -476,6 +478,113 @@ end:
   return kc;
 }
 
-int fx_ioctx_import(fx_ioctx_t *ctx, fx_bytes_t data) {}
+typedef struct fx_key_name {
+  int valid;
+  uint8_t name[MAX_FILE_NAME_LEN];
+} fx_keyname_t;
 
-fx_bytes_t fx_ioctx_export(fx_ioctx_t *ctx, fx_keychain_type type) {}
+static fx_keyname_t keynames[FX_MAX_KEYCHAIN] = {0};
+
+static inline fx_keyname_t *fx_keyname_get_ex(fx_keychain_type type) {
+  return keynames + ((int)type - 1);
+}
+
+static fx_bytes_t fx_keyname_gen(fx_outlet_t *outlet, fx_keychain_type type) {
+  fx_bytes_t file = fx_bytes_empty();
+  uint8_t tmp[strlen("0x000") + 1];
+  if (!fx_keychain_type_check(type))
+    goto end;
+
+  if (sprintf(tmp, "0x%03X", type << FX_MAX_KEYCHAIN) <= 0)
+    goto end;
+
+  file.ptr = tmp;
+  file.len = strlen(file.ptr);
+  file = fx_outlet_sm3_digest(outlet, file);
+  if (!fx_bytes_check(&file) || file.len > MAX_FILE_NAME_LEN)
+    goto end;
+
+  for (size_t i = 0; i < file.len; ++i)
+    sprintf(fx_keyname_get_ex(type)->name + (i * 2), "%02X", *(file.ptr + i));
+  *(fx_keyname_get_ex(type)->name + file.len - 1) = '\0';
+  fx_keyname_get_ex(type)->valid = 1;
+  fx_bytes_free(&file);
+  file = fx_bytes_new(fx_keyname_get_ex(type)->name, MAX_FILE_NAME_LEN);
+
+end:
+  return file;
+}
+
+static inline fx_bytes_t fx_keyname_get(fx_outlet_t *outlet,
+                                        fx_keychain_type type) {
+  return fx_keychain_type_check(type) && fx_keyname_get_ex(type)->valid
+             ? fx_bytes_new(fx_keyname_get_ex(type)->name, MAX_FILE_NAME_LEN)
+             : fx_keyname_gen(outlet, type);
+}
+
+int fx_ioctx_import(fx_ioctx_t *ctx, fx_keychain_type type, fx_bytes_t data) {
+  int ret = 0, flag = 0;
+  fx_port_t *port;
+  fx_bytes_t filename = fx_bytes_empty();
+  if (!ctx)
+    goto end;
+
+  filename = fx_keyname_get(ctx->outlet, type);
+  if (!fx_bytes_check(&filename))
+    goto end;
+
+  if (fx_outlet_file_exist(ctx->outlet, filename)) {
+    port = fx_outlet_export_port(ctx->outlet, FX_FILE_PORT);
+    if (port)
+      goto do_import;
+
+    port = fx_port_new(FX_FILE_PORT, filename, FX_PF_OPEN, ctx->outlet,
+                       fx_outlet_export(ctx->outlet, FX_APP_PORT));
+    if (port && fx_outlet_set_port(ctx->outlet, FX_FILE_PORT, port) == 1)
+      flag = 1;
+  } else {
+    ret = fx_outlet_create_file(ctx->outlet, filename);
+    flag = ret;
+  }
+
+do_import:
+  ret = fx_outlet_fswrite(ctx->outlet, data, 0);
+
+end:
+  if (!!flag)
+    fx_outlet_set_port(ctx->outlet, FX_FILE_PORT, NULL);
+
+  return ret;
+}
+
+fx_bytes_t fx_ioctx_export(fx_ioctx_t *ctx, fx_keychain_type type) {
+  int flag = 0;
+  fx_bytes_t file = fx_bytes_empty();
+  fx_port_t *port;
+  if (!ctx)
+    goto end;
+
+  file = fx_keyname_get(ctx->outlet, type);
+  if (!fx_bytes_check(&file) || !fx_outlet_file_exist(ctx->outlet, file))
+    goto end;
+
+  port = fx_outlet_export_port(ctx->outlet, FX_FILE_PORT);
+  if (!port) {
+    port = fx_port_new(FX_FILE_PORT, file, FX_PF_OPEN, ctx->outlet,
+                       fx_outlet_export(ctx->outlet, FX_APP_PORT));
+    if (!port)
+      goto end;
+
+    flag = fx_outlet_set_port(ctx->outlet, FX_FILE_PORT, port);
+  }
+
+  file.len = fx_outlet_file_size(ctx->outlet, file);
+  if (file.len)
+    file = fx_outlet_fsread(ctx->outlet, file.len, 0);
+
+end:
+  if (!!flag)
+    fx_outlet_set_port(ctx->outlet, FX_FILE_PORT, NULL);
+
+return file;
+}

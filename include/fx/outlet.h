@@ -77,9 +77,13 @@ void fx_outlet_free(fx_outlet_t *outlet);
 
 const char *fx_outlet_peek_pin2char(fx_outlet_t *outlet);
 fx_bytes_t fx_outlet_get_pin(fx_outlet_t *outlet);
-fx_obj_t **fx_outlet_export(fx_outlet_t *outlet, fx_port_type type);
+fx_port_t *fx_outlet_export_port(fx_outlet_t *outlet, fx_port_type type);
 int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type, fx_port_t *port);
 int fx_outlet_validate_port(fx_outlet_t *outlet, fx_port_type type);
+static inline fx_obj_t **fx_outlet_export(fx_outlet_t *outlet,
+                                          fx_port_type type) {
+  return fx_port_export(fx_outlet_export_port(outlet, type));
+}
 
 #pragma mark - crypto
 typedef enum {
@@ -109,6 +113,7 @@ fx_bytes_t fx_outlet_ecc_encrypt(fx_outlet_t *outlet, fx_bytes_t pubkey,
 int fx_outlet_create_file(fx_outlet_t *outlet, fx_bytes_t filename);
 int fx_outlet_delete_file(fx_outlet_t *outlet, fx_bytes_t filename);
 int fx_outlet_file_exist(fx_outlet_t *outlet, fx_bytes_t filename);
+size_t fx_outlet_file_size(fx_outlet_t *outlet, fx_bytes_t filename);
 
 fx_bytes_t fx_outlet_fsread(fx_outlet_t *outlet, size_t fsize, size_t offset);
 int fx_outlet_fswrite(fx_outlet_t *outlet, fx_bytes_t in, size_t offset);

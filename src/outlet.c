@@ -95,6 +95,7 @@ typedef DEVHANDLE fx_dev_t;
 typedef HAPPLICATION fx_app_t;
 typedef HCONTAINER fx_conta_t;
 
+typedef FILEATTRIBUTE fx_fileinfo_t;
 typedef BLOCKCIPHERPARAM fx_cipher_ctx_t;
 
 #pragma mark - fx_port_t
@@ -177,6 +178,8 @@ fx_port_t *fx_port_new(fx_port_type type, fx_bytes_t name, int flags,
   port->name = fx_bytes_clone(name);
   if (port->name.len == 0)
     goto err;
+  else
+    port->name.len = strlen(port->name.ptr);
 
   if (flags & FX_PF_OPEN) {
     flags = fx_port_open(port);
@@ -436,7 +439,9 @@ end:
   return ret;
 }
 
-FX_PORT_OP_DECLARE(file_open) { return 1; }
+FX_PORT_OP_DECLARE(file_open) {
+  return fx_outlet_file_exist(port->outlet, port->name);
+}
 
 FX_PORT_OP_DECLARE(file_close) { return 1; }
 
@@ -755,7 +760,7 @@ fx_bytes_t fx_outlet_get_pin(fx_outlet_t *outlet) {
   return outlet ? fx_bytes_clone(outlet->pin) : fx_bytes_empty();
 }
 
-fx_obj_t **fx_outlet_export(fx_outlet_t *outlet, fx_port_type type) {
+fx_port_t *fx_outlet_export_port(fx_outlet_t *outlet, fx_port_type type) {
   fx_port_t *port = NULL;
   if (outlet)
     switch (type) {
@@ -771,16 +776,23 @@ fx_obj_t **fx_outlet_export(fx_outlet_t *outlet, fx_port_type type) {
       port = outlet->pconta;
       break;
 
+    case FX_FILE_PORT:
+      port = outlet->pfile;
+      break;
+
     default:
       break;
     }
 
-  return fx_port_export(port);
+  return port;
 }
 
 int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
                        fx_port_t *port) {
-  if (outlet && fx_port_busy(port) == 1) {
+  if (port && fx_port_busy(port) != 1)
+    goto end;
+
+  if (outlet) {
     switch (type) {
     case FX_DEV_PORT:
       outlet->pdev = port;
@@ -802,7 +814,9 @@ int fx_outlet_set_port(fx_outlet_t *outlet, fx_port_type type,
       goto end;
     }
 
-    port->outlet = outlet;
+    if (port)
+      port->outlet = outlet;
+
     return 1;
   }
 
@@ -1047,8 +1061,8 @@ int fx_outlet_create_file(fx_outlet_t *outlet, fx_bytes_t filename) {
   if (!outlet || fx_outlet_file_exist(outlet, filename))
     goto end;
 
-  if (outlet->pfile &&
-      strncmp(outlet->pfile->name.ptr, filename.ptr, filename.len) == 0) {
+  if (outlet->pfile && strncmp(outlet->pfile->name.ptr, filename.ptr,
+                               strlen(filename.ptr)) == 0) {
     if (outlet->pfile->add)
       ret = outlet->pfile->add(outlet->pfile);
   } else {
@@ -1073,8 +1087,8 @@ int fx_outlet_delete_file(fx_outlet_t *outlet, fx_bytes_t filename) {
     goto end;
   }
 
-  if (outlet->pfile &&
-      strncmp(outlet->pfile->name.ptr, filename.ptr, filename.len) == 0) {
+  if (outlet->pfile && strncmp(outlet->pfile->name.ptr, filename.ptr,
+                               strlen(filename.ptr)) == 0) {
     if (outlet->pfile->remove)
       ret = outlet->pfile->remove(outlet->pfile);
   } else {
@@ -1095,31 +1109,37 @@ end:
   return ret;
 }
 
-int fx_outlet_file_exist(fx_outlet_t *outlet, fx_bytes_t filename) {
+static inline int fx_outlet_get_fileinfo(fx_outlet_t *outlet,
+                                         fx_bytes_t filename,
+                                         fx_fileinfo_t *fileinfo) {
   int ret = 0;
-  fx_app_t **papp = NULL;
-  FILEATTRIBUTE fileinfo = {0};
-  if (!outlet || !fx_bytes_check(&filename) || filename.len > MAX_FILE_NAME_LEN)
-    goto end;
+  fx_app_t **papp = (fx_app_t **)fx_outlet_export(outlet, FX_APP_PORT);
+  if (fileinfo && papp && fx_bytes_check(&filename) &&
+      strlen(filename.ptr) <= MAX_FILE_NAME_LEN)
+    ret = SKF_GetFileInfo(*papp, filename.ptr, fileinfo);
+  return ret;
+}
 
-  papp = (fx_app_t **)fx_outlet_export(outlet, FX_FILE_PORT);
-  if (!papp)
-    goto end;
-
-  ret = SKF_GetFileInfo(*papp, filename.ptr, &fileinfo);
+int fx_outlet_file_exist(fx_outlet_t *outlet, fx_bytes_t filename) {
+  fx_fileinfo_t fileinfo = {0};
+  int ret = fx_outlet_get_fileinfo(outlet, filename, &fileinfo);
   if (ret == SAR_OK)
     ret = 1;
   else if (ret == SAR_FILE_NOT_EXIST)
     ret = 0;
-
-end:
   return ret;
+}
+
+size_t fx_outlet_file_size(fx_outlet_t *outlet, fx_bytes_t filename) {
+  fx_fileinfo_t fileinfo = {0};
+  int ret = fx_outlet_get_fileinfo(outlet, filename, &fileinfo);
+  return ret == SAR_OK ? fileinfo.FileSize : 0;
 }
 
 static inline FX_OUTLET_GEN_BYTES_DECLARE(fsread) {
   int ret = 0;
   size_t *offset = (size_t *)obj;
-  ULONG rsize = 0;
+  ULONG rsize = out->len;
   if (offset && outlet->pfile) {
     ret = SKF_ReadFile(*(fx_app_t **)port, outlet->pfile->name.ptr, *offset,
                        out->len, out->ptr, &rsize);
@@ -1130,7 +1150,7 @@ static inline FX_OUTLET_GEN_BYTES_DECLARE(fsread) {
 }
 
 fx_bytes_t fx_outlet_fsread(fx_outlet_t *outlet, size_t fsize, size_t offset) {
-  return fx_outlet_gen_bytes(outlet, FX_DEV_PORT, fx_bytes_empty(), fsize, 0,
+  return fx_outlet_gen_bytes(outlet, FX_APP_PORT, fx_bytes_empty(), fsize, 0,
                              &offset, fx_outlet_gen_fsread_impl);
 }
 
@@ -1149,7 +1169,7 @@ static inline FX_OUTLET_GEN_BYTES_DECLARE(fswrite) {
 }
 
 int fx_outlet_fswrite(fx_outlet_t *outlet, fx_bytes_t in, size_t offset) {
-  fx_bytes_t out = fx_outlet_gen_bytes(outlet, FX_DEV_PORT, in, 0, 0, &offset,
+  fx_bytes_t out = fx_outlet_gen_bytes(outlet, FX_APP_PORT, in, 0, 0, &offset,
                                        fx_outlet_gen_fswrite_impl);
   return out.len == in.len;
 }

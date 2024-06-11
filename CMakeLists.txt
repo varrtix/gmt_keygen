@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
 project(fx_keygen LANGUAGES C)
 
@@ -35,7 +35,7 @@ else()
     set(BUILD_TYPE release)
 endif()
 set(GM3000_LIB_NAME gm3000.1.0)
-set(GM3000_LIB_DIR ${LIB_DIR}/gm3000/${BUILD_TYPE})
+set(GM3000_LIB_DIR ${LIB_DIR}/gm3000/${CMAKE_SYSTEM_PROCESSOR}/${BUILD_TYPE})
 
 # Library: libfx_keygen
 file(GLOB SOURCE_LIST ${SOURCE_DIR}/*.c)

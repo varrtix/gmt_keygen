@@ -64,6 +64,7 @@ void fx_keychain_destroy(fx_keychain_t *kc);
 fx_keychain_type fx_keychain_get_type(fx_keychain_t *kc);
 fx_bytes_t fx_keychain_get_kte(fx_keychain_t *kc);
 fx_bytes_t fx_keychain_get_kek(fx_keychain_t *kc);
+fx_bytes_t fx_keychain_get(fx_keychain_t *kc, size_t idx);
 
 fx_bytes_t fx_keychain_encode(fx_keychain_t *kc);
 fx_keychain_t *fx_keychain_decode(fx_bytes_t data);

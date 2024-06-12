@@ -352,6 +352,12 @@ fx_bytes_t fx_keychain_get_kek(fx_keychain_t *kc) {
              : fx_bytes_empty();
 }
 
+fx_bytes_t fx_keychain_get(fx_keychain_t *kc, size_t idx) {
+  return (kc && kc->tc && idx < fx_chunk_get_size(kc->tc))
+             ? fx_chunk_get(kc->tc, idx)
+             : fx_bytes_empty();
+}
+
 fx_bytes_t fx_keychain_encode(fx_keychain_t *kc) {
   int bsize = 0;
   size_t size = 0;
